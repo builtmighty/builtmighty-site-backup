@@ -1,0 +1,110 @@
+.bm-backup-wrap h2 {
+    margin-top: 2em;
+}
+
+.bm-backup-wrap h2:first-of-type {
+    margin-top: 0;
+}
+
+.bm-result-message {
+    margin-left: 10px;
+    font-weight: 600;
+}
+
+.bm-result-message.success {
+    color: #00a32a;
+}
+
+.bm-result-message.error {
+    color: #d63638;
+}
+
+.bm-result-message.loading {
+    color: #666;
+}
+
+.bm-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.bm-status-completed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.bm-status-running {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.bm-status-failed {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.bm-error-cell {
+    max-width: 300px;
+    word-wrap: break-word;
+}
+
+#bm-run-backup.running {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+/* Progress bar */
+.bm-progress-box {
+    display: none;
+    margin-top: 12px;
+    max-width: 500px;
+}
+
+.bm-progress-bar-wrap {
+    background: #e0e0e0;
+    border-radius: 4px;
+    height: 20px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.bm-progress-bar {
+    background: #0073aa;
+    height: 100%;
+    width: 0;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+.bm-progress-text {
+    font-size: 13px;
+    color: #555;
+    font-style: italic;
+}
+
+/* Bootstrap key section */
+.bm-bootstrap-key-wrap {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    max-width: 640px;
+}
+
+.bm-bootstrap-key-input {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.bm-copy-btn {
+    flex-shrink: 0;
+}
+
+.bm-key-warning {
+    color: #856404;
+}

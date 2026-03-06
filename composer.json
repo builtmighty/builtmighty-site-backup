@@ -1,0 +1,23 @@
+{
+    "name": "builtmighty/site-backup",
+    "description": "WordPress plugin for automated site backups to DigitalOcean Spaces",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1",
+        "aws/aws-sdk-php": "^3.300",
+        "woocommerce/action-scheduler": "^3.9"
+    },
+    "autoload": {
+        "classmap": [
+            "includes/"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true,
+        "platform": {
+            "php": "8.1.0"
+        }
+    }
+}
