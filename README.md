@@ -2,6 +2,14 @@
 
 A WordPress plugin that automates site backups to DigitalOcean Spaces. Designed for the Built Mighty team, it supports scheduled and on-demand backups of both the database and file system, with built-in integration for the staged-loader Codespace pipeline.
 
+[![Download ZIP](https://img.shields.io/badge/Download-ZIP-blue?style=for-the-badge)](https://github.com/builtmighty/builtmighty-site-backup/releases/latest/download/builtmighty-site-backup.zip)
+
+## Install via WP-CLI
+
+```bash
+wp plugin install https://github.com/builtmighty/builtmighty-site-backup/releases/latest/download/builtmighty-site-backup.zip --activate
+```
+
 ## Requirements
 
 - WordPress 6.0+
