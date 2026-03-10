@@ -1140,6 +1140,6 @@
             "install-path": "../woocommerce/action-scheduler"
         }
     ],
-    "dev": true,
+    "dev": false,
     "dev-package-names": []
 }

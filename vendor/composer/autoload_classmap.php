@@ -1215,6 +1215,7 @@ return array(
     'Aws\\mgn\\mgnClient' => $vendorDir . '/aws/aws-sdk-php/src/mgn/mgnClient.php',
     'Aws\\signer\\Exception\\signerException' => $vendorDir . '/aws/aws-sdk-php/src/signer/Exception/signerException.php',
     'Aws\\signer\\signerClient' => $vendorDir . '/aws/aws-sdk-php/src/signer/signerClient.php',
+    'BM_Backup_Api_Endpoint' => $baseDir . '/includes/class-api-endpoint.php',
     'BM_Backup_CLI_Command' => $baseDir . '/includes/class-cli-command.php',
     'BM_Backup_Database_Exporter' => $baseDir . '/includes/class-database-exporter.php',
     'BM_Backup_File_Archiver' => $baseDir . '/includes/class-file-archiver.php',

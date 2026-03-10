@@ -1298,6 +1298,7 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
         'Aws\\mgn\\mgnClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/mgn/mgnClient.php',
         'Aws\\signer\\Exception\\signerException' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/signer/Exception/signerException.php',
         'Aws\\signer\\signerClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/signer/signerClient.php',
+        'BM_Backup_Api_Endpoint' => __DIR__ . '/../..' . '/includes/class-api-endpoint.php',
         'BM_Backup_CLI_Command' => __DIR__ . '/../..' . '/includes/class-cli-command.php',
         'BM_Backup_Database_Exporter' => __DIR__ . '/../..' . '/includes/class-database-exporter.php',
         'BM_Backup_File_Archiver' => __DIR__ . '/../..' . '/includes/class-file-archiver.php',

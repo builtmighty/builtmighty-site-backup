@@ -1,6 +1,6 @@
 <?php
 /**
- * Database exporter — pure PHP database dump using $wpdb with gzip streaming.
+ * Database exporter — mysqldump with gzip (preferred) or pure PHP fallback.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -15,11 +15,86 @@ class BM_Backup_Database_Exporter {
     /**
      * Export the entire database to a gzipped SQL file.
      *
+     * Prefers mysqldump piped to gzip for speed; falls back to pure PHP
+     * when shell functions are unavailable or mysqldump is not installed.
+     *
      * @param string $output_path Absolute path for the output .sql.gz file.
      * @return int File size in bytes.
      * @throws \Exception On export failure.
      */
     public function export( string $output_path ): int {
+        if ( $this->can_use_mysqldump() ) {
+            return $this->export_with_mysqldump( $output_path );
+        }
+
+        return $this->export_with_php( $output_path );
+    }
+
+    /**
+     * Check if mysqldump is available on the system.
+     */
+    private function can_use_mysqldump(): bool {
+        if ( ! function_exists( 'exec' ) ) {
+            return false;
+        }
+
+        $disabled = explode( ',', ini_get( 'disable_functions' ) );
+        $disabled = array_map( 'trim', $disabled );
+        if ( in_array( 'exec', $disabled, true ) ) {
+            return false;
+        }
+
+        exec( 'which mysqldump 2>/dev/null', $output, $return_code );
+        return $return_code === 0;
+    }
+
+    /**
+     * Export using mysqldump piped to gzip (fast, low memory).
+     */
+    private function export_with_mysqldump( string $output_path ): int {
+        $command = sprintf(
+            'mysqldump --single-transaction --quick --skip-lock-tables --set-charset '
+            . '--default-character-set=utf8mb4 --no-tablespaces '
+            . '-h %s -u %s %s %s 2>&1 | gzip -6 > %s',
+            escapeshellarg( DB_HOST ),
+            escapeshellarg( DB_USER ),
+            ! empty( DB_PASSWORD ) ? '-p' . escapeshellarg( DB_PASSWORD ) : '',
+            escapeshellarg( DB_NAME ),
+            escapeshellarg( $output_path )
+        );
+
+        // Use MYSQL_PWD env var instead of -p to avoid "password on command line" warning.
+        $env_command = sprintf(
+            'MYSQL_PWD=%s mysqldump --single-transaction --quick --skip-lock-tables --set-charset '
+            . '--default-character-set=utf8mb4 --no-tablespaces '
+            . '-h %s -u %s %s 2>&1 | gzip -6 > %s',
+            escapeshellarg( DB_PASSWORD ),
+            escapeshellarg( DB_HOST ),
+            escapeshellarg( DB_USER ),
+            escapeshellarg( DB_NAME ),
+            escapeshellarg( $output_path )
+        );
+
+        exec( $env_command, $output, $return_code );
+
+        // Check for pipe failure — gzip always succeeds, so verify the dump is valid.
+        if ( $return_code !== 0 ) {
+            $error = implode( "\n", $output );
+            throw new \Exception( "mysqldump failed (exit {$return_code}): {$error}" );
+        }
+
+        $size = filesize( $output_path );
+        if ( $size === false || $size === 0 ) {
+            throw new \Exception( 'mysqldump produced an empty file — check database credentials.' );
+        }
+
+        return $size;
+    }
+
+    /**
+     * Export using pure PHP via $wpdb (fallback when mysqldump is unavailable).
+     */
+    private function export_with_php( string $output_path ): int {
         global $wpdb;
 
         if ( ! function_exists( 'gzopen' ) ) {

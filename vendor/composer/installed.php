@@ -3,11 +3,11 @@
         'name' => 'builtmighty/site-backup',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'bd5439d867302d748ad1fb3f3dc04f76ad4deebe',
+        'reference' => '135eaccf0943e3b2aa0d6b94e5fd514e75c6ce90',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
-        'dev' => true,
+        'dev' => false,
     ),
     'versions' => array(
         'aws/aws-crt-php' => array(
@@ -31,7 +31,7 @@
         'builtmighty/site-backup' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'bd5439d867302d748ad1fb3f3dc04f76ad4deebe',
+            'reference' => '135eaccf0943e3b2aa0d6b94e5fd514e75c6ce90',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
