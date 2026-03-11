@@ -26,6 +26,10 @@ wp plugin install https://github.com/builtmighty/builtmighty-site-backup/release
 - **Codespace integration** — REST API endpoint for the bootstrap pipeline
 - **WP-CLI support** — full command-line interface
 - **Multisite compatible** — settings stored at the network level
+- **Cancel in-progress backups** — stop a running backup from the admin UI or WP-CLI
+- **Developer filters** — tune batch size, part size, concurrency, and gzip levels via `add_filter()`
+- **Action hooks** — fire custom code before/after each backup step, on completion, or on failure
+- **Access-controlled settings** — settings page restricted to authorized `@builtmighty.com` accounts
 
 ## Installation
 
@@ -84,6 +88,35 @@ wp bm-backup prune
 wp bm-backup test
 ```
 
+## Developer Hooks & Filters
+
+### Filters
+
+| Filter | Default | Description |
+|--------|---------|-------------|
+| `bm_backup_db_batch_size` | `1000` | Rows per paginated DB export query |
+| `bm_backup_db_gzip_level` | `6` | Gzip compression level for DB dump |
+| `bm_backup_files_gzip_level` | `6` | Gzip compression level for file archive |
+| `bm_backup_upload_part_size` | `10485760` | Multipart upload part size in bytes (10 MB) |
+| `bm_backup_upload_concurrency` | `5` | Concurrent upload parts |
+| `bm_backup_upload_max_retries` | `3` | Max upload retries per part |
+| `bm_backup_admin_domains` | `['builtmighty.com']` | Email domains permitted to access the settings page |
+
+### Action Hooks
+
+| Hook | Args | Description |
+|------|------|-------------|
+| `bm_backup_before_start` | `$state` | Fires at the top of the start step |
+| `bm_backup_after_start` | `$state` | Fires after the start step |
+| `bm_backup_before_export_db` | `$state` | Fires before DB export |
+| `bm_backup_after_export_db` | `$state, $db_path` | Fires after DB export |
+| `bm_backup_before_archive_files` | `$state` | Fires before file archive |
+| `bm_backup_after_archive_files` | `$state, $files_path` | Fires after file archive |
+| `bm_backup_before_upload` | `$state, $type` | Fires before each upload step |
+| `bm_backup_after_upload` | `$state, $type, $remote_key` | Fires after each upload step |
+| `bm_backup_completed` | `$state` | Fires when backup completes successfully |
+| `bm_backup_failed` | `$state, $error` | Fires when backup fails |
+
 ## REST API
 
 ### Codespace Config
@@ -113,6 +146,9 @@ Each step runs independently to avoid timeout issues on resource-constrained hos
 ## Security
 
 - Secret keys encrypted with AES-256-CBC using WordPress salts
+- Optional `BM_BACKUP_SECRET` constant in `wp-config.php` adds a second pepper to AES-256-CBC key derivation
+- Credential fields are write-only — values never appear in page source or form fields
+- Settings page restricted to authorized email domains (default: `@builtmighty.com`)
 - REST API protected with Bearer token authentication
 - HTTPS enforced on API endpoints
 - Rate limiting on API access

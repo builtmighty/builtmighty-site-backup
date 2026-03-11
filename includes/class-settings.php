@@ -12,6 +12,25 @@ class BM_Backup_Settings {
     const OPTION_KEY = 'bm_backup_settings';
 
     /**
+     * Check whether the current user is authorized to manage plugin settings.
+     * Requires a matching email domain in addition to capability checks.
+     */
+    private function is_authorized_user(): bool {
+        $user = wp_get_current_user();
+        if ( ! $user || ! $user->exists() ) {
+            return false;
+        }
+        $allowed_domains = apply_filters( 'bm_backup_admin_domains', [ 'builtmighty.com' ] );
+        $email           = strtolower( $user->user_email );
+        foreach ( $allowed_domains as $domain ) {
+            if ( str_ends_with( $email, '@' . strtolower( $domain ) ) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Hook into WordPress.
      */
     public function init(): void {
@@ -38,6 +57,9 @@ class BM_Backup_Settings {
      * Add the settings page to the admin menu.
      */
     public function add_menu_page(): void {
+        if ( ! $this->is_authorized_user() ) {
+            return;
+        }
         $capability = is_multisite() ? 'manage_network_options' : 'manage_options';
         add_options_page(
             __( 'BM Site Backup', 'builtmighty-site-backup' ),
@@ -87,6 +109,9 @@ class BM_Backup_Settings {
      * Render the settings page.
      */
     public function render_page(): void {
+        if ( ! $this->is_authorized_user() ) {
+            wp_die( __( 'You do not have permission to access this page.', 'builtmighty-site-backup' ) );
+        }
         if ( is_multisite() ) {
             $action = network_admin_url( 'edit.php?action=bm_backup_save' );
         } else {
@@ -103,6 +128,10 @@ class BM_Backup_Settings {
         check_admin_referer( 'bm_backup_settings_group-options' );
 
         if ( ! current_user_can( 'manage_network_options' ) ) {
+            wp_die( __( 'Unauthorized', 'builtmighty-site-backup' ) );
+        }
+
+        if ( ! $this->is_authorized_user() ) {
             wp_die( __( 'Unauthorized', 'builtmighty-site-backup' ) );
         }
 
@@ -125,7 +154,13 @@ class BM_Backup_Settings {
         $sanitized = [];
 
         // DO Spaces credentials.
-        $sanitized['spaces_access_key'] = sanitize_text_field( $input['spaces_access_key'] ?? '' );
+        // Access key — write-only: keep existing if field is blank or the masked placeholder.
+        $raw_access = $input['spaces_access_key'] ?? '';
+        if ( ! empty( $raw_access ) && $raw_access !== '••••••••' ) {
+            $sanitized['spaces_access_key'] = sanitize_text_field( $raw_access );
+        } else {
+            $sanitized['spaces_access_key'] = $current['spaces_access_key'] ?? '';
+        }
         $sanitized['spaces_endpoint']   = sanitize_text_field( $input['spaces_endpoint'] ?? '' );
         $sanitized['spaces_bucket']     = sanitize_text_field( $input['spaces_bucket'] ?? '' );
         $sanitized['client_path']       = sanitize_text_field( $input['client_path'] ?? '' );
@@ -232,6 +267,10 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
+        if ( ! $this->is_authorized_user() ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
         if ( ! bm_backup_has_sdk() ) {
             wp_send_json_error(
                 'AWS SDK not found. Please run "composer install" in the plugin directory or use a pre-built release.'
@@ -258,6 +297,10 @@ class BM_Backup_Settings {
         check_ajax_referer( 'bm_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        if ( ! $this->is_authorized_user() ) {
             wp_send_json_error( 'Unauthorized' );
         }
 
@@ -296,6 +339,10 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
+        if ( ! $this->is_authorized_user() ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
         $manager = new BM_Backup_Manager();
         wp_send_json_success( $manager->get_status() );
     }
@@ -307,6 +354,10 @@ class BM_Backup_Settings {
         check_ajax_referer( 'bm_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        if ( ! $this->is_authorized_user() ) {
             wp_send_json_error( 'Unauthorized' );
         }
 
@@ -322,6 +373,10 @@ class BM_Backup_Settings {
         check_ajax_referer( 'bm_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        if ( ! $this->is_authorized_user() ) {
             wp_send_json_error( 'Unauthorized' );
         }
 
@@ -343,6 +398,10 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
+        if ( ! $this->is_authorized_user() ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
         $key           = BM_Backup_Api_Endpoint::generate_key();
         $bootstrap_key = BM_Backup_Api_Endpoint::get_bootstrap_key();
 
@@ -352,10 +411,11 @@ class BM_Backup_Settings {
     }
 
     /**
-     * Encrypt a string using AES-256-CBC with wp_salt.
+     * Encrypt a string using AES-256-CBC with wp_salt + optional BM_BACKUP_SECRET pepper.
      */
     private function encrypt( string $plaintext ): string {
-        $key    = hash( 'sha256', wp_salt( 'auth' ), true );
+        $pepper = defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '';
+        $key    = hash( 'sha256', wp_salt( 'auth' ) . $pepper, true );
         $iv     = openssl_random_pseudo_bytes( 16 );
         $cipher = openssl_encrypt( $plaintext, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
         return base64_encode( $iv . $cipher );
@@ -365,8 +425,9 @@ class BM_Backup_Settings {
      * Decrypt a string encrypted with encrypt().
      */
     private function decrypt( string $encoded ): string {
-        $key  = hash( 'sha256', wp_salt( 'auth' ), true );
-        $data = base64_decode( $encoded );
+        $pepper = defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '';
+        $key    = hash( 'sha256', wp_salt( 'auth' ) . $pepper, true );
+        $data   = base64_decode( $encoded );
         if ( strlen( $data ) < 17 ) {
             return '';
         }

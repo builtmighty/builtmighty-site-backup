@@ -44,10 +44,11 @@ $recent    = $logger->get_recent( 20 );
                     <label for="bm_spaces_access_key"><?php esc_html_e( 'Access Key', 'builtmighty-site-backup' ); ?></label>
                 </th>
                 <td>
-                    <input type="text" id="bm_spaces_access_key"
+                    <input type="password" id="bm_spaces_access_key"
                            name="bm_backup_settings[spaces_access_key]"
-                           value="<?php echo esc_attr( $settings['spaces_access_key'] ); ?>"
-                           class="regular-text" autocomplete="off" />
+                           value="<?php echo ! empty( $settings['spaces_access_key'] ) ? '••••••••' : ''; ?>"
+                           class="regular-text" autocomplete="new-password" />
+                    <p class="description"><?php esc_html_e( 'Leave blank to keep the current key.', 'builtmighty-site-backup' ); ?></p>
                 </td>
             </tr>
             <tr>
