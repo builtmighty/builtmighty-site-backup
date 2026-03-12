@@ -297,6 +297,7 @@ $recent    = $logger->get_recent( 20 );
                     <th><?php esc_html_e( 'DB Size', 'builtmighty-site-backup' ); ?></th>
                     <th><?php esc_html_e( 'Files Size', 'builtmighty-site-backup' ); ?></th>
                     <th><?php esc_html_e( 'Error', 'builtmighty-site-backup' ); ?></th>
+                    <th><?php esc_html_e( 'Download', 'builtmighty-site-backup' ); ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -314,6 +315,18 @@ $recent    = $logger->get_recent( 20 );
                         <td><?php echo $entry['files_file_size'] ? esc_html( size_format( $entry['files_file_size'] ) ) : '&mdash;'; ?></td>
                         <td class="bm-error-cell">
                             <?php echo $entry['error_message'] ? esc_html( wp_trim_words( $entry['error_message'], 15 ) ) : '&mdash;'; ?>
+                        </td>
+                        <td>
+                            <?php if ( $entry['status'] === 'completed' ) : ?>
+                                <?php if ( ! empty( $entry['db_remote_key'] ) ) : ?>
+                                    <a href="#" class="bm-download-link" data-key="<?php echo esc_attr( $entry['db_remote_key'] ); ?>">DB</a>
+                                <?php endif; ?>
+                                <?php if ( ! empty( $entry['files_remote_key'] ) ) : ?>
+                                    <a href="#" class="bm-download-link" data-key="<?php echo esc_attr( $entry['files_remote_key'] ); ?>">Files</a>
+                                <?php endif; ?>
+                            <?php else : ?>
+                                &mdash;
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

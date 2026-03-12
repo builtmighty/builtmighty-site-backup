@@ -3,6 +3,8 @@
 
     var pollTimer = null;
     var pollInterval = 3000; // Poll every 3 seconds.
+    var pollStartTime = null;
+    var pollMaxDuration = 6 * 60 * 60 * 1000; // 6 hours.
 
     // Test Connection button.
     $('#bm-test-connection').on('click', function () {
@@ -83,7 +85,7 @@
         .done(function (response) {
             if (response.success) {
                 showProgress('Backup scheduled. Waiting for first step...');
-                startPolling();
+                setTimeout(startPolling, 1000);
             } else {
                 hideProgress();
                 showResult('error', response.data);
@@ -101,6 +103,7 @@
 
     function startPolling() {
         if (pollTimer) return;
+        pollStartTime = Date.now();
         pollTimer = setInterval(checkStatus, pollInterval);
         checkStatus(); // Check immediately too.
     }
@@ -110,9 +113,19 @@
             clearInterval(pollTimer);
             pollTimer = null;
         }
+        pollStartTime = null;
     }
 
     function checkStatus() {
+        // Stop polling if it has been running longer than the max duration.
+        if (pollStartTime && (Date.now() - pollStartTime) > pollMaxDuration) {
+            stopPolling();
+            hideProgress();
+            showResult('error', 'Backup may be stuck — check the server or try cancelling.');
+            $('#bm-run-backup').removeClass('running').prop('disabled', false);
+            return;
+        }
+
         $.post(bmBackup.ajaxUrl, {
             action: 'bm_backup_check_status',
             nonce: bmBackup.nonce,
@@ -261,6 +274,37 @@
             $btn.text('Copied!');
             setTimeout(function () { $btn.text('Copy'); }, 2000);
         }
+    });
+
+    // Download backup file via pre-signed URL.
+    $(document).on('click', '.bm-download-link', function (e) {
+        e.preventDefault();
+        var $link = $(this);
+        var key = $link.data('key');
+
+        if (!key) return;
+
+        $link.addClass('disabled').text('Loading...');
+
+        $.post(bmBackup.ajaxUrl, {
+            action: 'bm_backup_download',
+            nonce: bmBackup.nonce,
+            key: key,
+        })
+        .done(function (response) {
+            if (response.success && response.data.url) {
+                window.open(response.data.url, '_blank');
+            } else {
+                alert(response.data || 'Failed to generate download URL.');
+            }
+        })
+        .fail(function () {
+            alert('Download request failed.');
+        })
+        .always(function () {
+            var label = key.indexOf('databases/') !== -1 ? 'DB' : 'Files';
+            $link.removeClass('disabled').text(label);
+        });
     });
 
     // Show/hide day-of-week when frequency is weekly.

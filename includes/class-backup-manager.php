@@ -84,6 +84,9 @@ class BM_Backup_Manager {
             throw new \Exception( 'A backup is already in progress.' );
         }
 
+        // Check available disk space against the last backup's size.
+        $this->check_disk_space( $type );
+
         $timestamp = gmdate( 'Y-m-d-His' );
 
         // Build the list of steps to execute based on type.
@@ -107,6 +110,10 @@ class BM_Backup_Manager {
             'error'            => null,
             'started_at'       => current_time( 'mysql', true ),
         ];
+
+        // Clear any leftover state from a previous backup so the first poll
+        // doesn't pick up stale completed/failed status.
+        delete_site_option( self::STATE_OPTION );
 
         $this->save_state( $state );
 
@@ -444,9 +451,13 @@ class BM_Backup_Manager {
             'db_file_size'    => $state['db_file_size'],
             'files_file_size' => $state['files_file_size'],
             'started_at'   => $state['started_at'],
-            'message'      => $state['status'] === 'running'
-                ? sprintf( 'Step %d/%d: %s...', $current, $total, $step_label )
-                : ( $state['status'] === 'completed' ? 'Backup completed.' : 'Backup failed.' ),
+            'message'      => match ( $state['status'] ) {
+                'running'   => sprintf( 'Step %d/%d: %s...', $current, $total, $step_label ),
+                'pending'   => 'Backup pending — waiting for background processing...',
+                'completed' => 'Backup completed.',
+                'failed'    => 'Backup failed.',
+                default     => '',
+            },
         ];
     }
 
@@ -507,6 +518,51 @@ class BM_Backup_Manager {
     private function update_current_step( array &$state, string $step ): void {
         $state['current_step'] = $step;
         $this->save_state( $state );
+    }
+
+    /**
+     * Check that the temp directory has enough free space for the backup.
+     * Estimates based on the last completed backup's total size.
+     * Skips the check on the first-ever backup (no estimate available).
+     *
+     * @throws \Exception If disk space is insufficient.
+     */
+    private function check_disk_space( string $type ): void {
+        $logger = new BM_Backup_Logger();
+        $last   = $logger->get_last_completed();
+
+        if ( ! $last ) {
+            return; // First backup — no estimate available.
+        }
+
+        $estimated = 0;
+        if ( in_array( $type, [ 'full', 'db' ], true ) ) {
+            $estimated += (int) ( $last['db_file_size'] ?? 0 );
+        }
+        if ( in_array( $type, [ 'full', 'files' ], true ) ) {
+            $estimated += (int) ( $last['files_file_size'] ?? 0 );
+        }
+
+        if ( $estimated <= 0 ) {
+            return;
+        }
+
+        $temp_dir   = get_temp_dir();
+        $free_space = @disk_free_space( $temp_dir );
+
+        if ( $free_space === false ) {
+            return; // Can't determine — skip gracefully.
+        }
+
+        $required = (int) ( $estimated * 1.2 ); // 20% safety margin.
+
+        if ( $free_space < $required ) {
+            throw new \Exception( sprintf(
+                'Insufficient disk space. Available: %s, estimated need: %s. Free up space in the temp directory or reduce backup scope.',
+                size_format( $free_space ),
+                size_format( $required )
+            ) );
+        }
     }
 
     /**

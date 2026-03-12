@@ -46,6 +46,7 @@ class BM_Backup_Settings {
         add_action( 'wp_ajax_bm_backup_dismiss_status', [ $this, 'ajax_dismiss_status' ] );
         add_action( 'wp_ajax_bm_backup_cancel', [ $this, 'ajax_cancel' ] );
         add_action( 'wp_ajax_bm_backup_generate_api_key', [ $this, 'ajax_generate_api_key' ] );
+        add_action( 'wp_ajax_bm_backup_download', [ $this, 'ajax_download' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 
         if ( is_multisite() ) {
@@ -408,6 +409,44 @@ class BM_Backup_Settings {
         wp_send_json_success( [
             'bootstrap_key' => $bootstrap_key,
         ] );
+    }
+
+    /**
+     * AJAX: Generate a temporary pre-signed download URL for a backup file.
+     */
+    public function ajax_download(): void {
+        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+
+        if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        if ( ! $this->is_authorized_user() ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        if ( ! bm_backup_has_sdk() ) {
+            wp_send_json_error( 'AWS SDK not available.' );
+        }
+
+        $key = sanitize_text_field( $_POST['key'] ?? '' );
+        if ( empty( $key ) ) {
+            wp_send_json_error( 'Missing file key.' );
+        }
+
+        // Validate that the key belongs to this client's path to prevent path traversal.
+        $client_path = rtrim( $this->get( 'client_path' ), '/' );
+        if ( ! str_starts_with( $key, $client_path . '/' ) ) {
+            wp_send_json_error( 'Invalid file key.' );
+        }
+
+        try {
+            $client = new BM_Backup_Spaces_Client( $this );
+            $url    = $client->get_presigned_url( $key );
+            wp_send_json_success( [ 'url' => $url ] );
+        } catch ( \Exception $e ) {
+            wp_send_json_error( 'Failed to generate download URL: ' . $e->getMessage() );
+        }
     }
 
     /**

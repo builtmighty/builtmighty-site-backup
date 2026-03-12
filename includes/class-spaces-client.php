@@ -168,6 +168,24 @@ class BM_Backup_Spaces_Client {
     }
 
     /**
+     * Generate a temporary pre-signed download URL for an object.
+     *
+     * @param string $key    Full S3 key of the object.
+     * @param int    $expiry URL lifetime in seconds (default 1 hour).
+     * @return string Pre-signed URL.
+     */
+    public function get_presigned_url( string $key, int $expiry = 3600 ): string {
+        $cmd = $this->client->getCommand( 'GetObject', [
+            'Bucket' => $this->bucket,
+            'Key'    => $key,
+        ] );
+
+        $request = $this->client->createPresignedRequest( $cmd, "+{$expiry} seconds" );
+
+        return (string) $request->getUri();
+    }
+
+    /**
      * Get the full client path prefix.
      */
     public function get_client_path(): string {
