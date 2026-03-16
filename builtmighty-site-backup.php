@@ -3,7 +3,7 @@
  * Plugin Name: BuiltMighty Site Backup
  * Plugin URI: https://github.com/builtmighty/builtmighty-site-backup
  * Description: Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand backups of the database and file system for use with the staged-loader Codespace pipeline.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: Built Mighty
  * Author URI: https://builtmighty.com
  * License: GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'BM_BACKUP_VERSION', '1.5.0' );
+define( 'BM_BACKUP_VERSION', '1.6.0' );
 define( 'BM_BACKUP_FILE', __FILE__ );
 define( 'BM_BACKUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BM_BACKUP_URL', plugin_dir_url( __FILE__ ) );
@@ -94,17 +94,35 @@ function bm_backup_activate( $network_wide ) {
     $logger = new BM_Backup_Logger();
     $logger->create_table();
 
+    // WP-Cron is blog-specific — on multisite, ensure the event is on the main site.
+    if ( $network_wide && is_multisite() ) {
+        switch_to_blog( get_main_site_id() );
+    }
+
     $scheduler = new BM_Backup_Scheduler();
     $scheduler->schedule();
+
+    if ( $network_wide && is_multisite() ) {
+        restore_current_blog();
+    }
 }
 register_activation_hook( __FILE__, 'bm_backup_activate' );
 
 /**
  * Plugin deactivation.
  */
-function bm_backup_deactivate() {
+function bm_backup_deactivate( $network_wide ) {
+    // WP-Cron is blog-specific — on multisite, clear the event from the main site.
+    if ( $network_wide && is_multisite() ) {
+        switch_to_blog( get_main_site_id() );
+    }
+
     $scheduler = new BM_Backup_Scheduler();
     $scheduler->unschedule();
+
+    if ( $network_wide && is_multisite() ) {
+        restore_current_blog();
+    }
 }
 register_deactivation_hook( __FILE__, 'bm_backup_deactivate' );
 

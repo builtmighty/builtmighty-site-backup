@@ -22,7 +22,12 @@ class BM_Backup_Scheduler {
      * Schedule the backup cron event.
      */
     public function schedule(): void {
+        $switched = $this->maybe_switch_to_main_site();
+
         if ( wp_next_scheduled( self::CRON_HOOK ) ) {
+            if ( $switched ) {
+                restore_current_blog();
+            }
             return;
         }
 
@@ -33,17 +38,27 @@ class BM_Backup_Scheduler {
         $next_run = $this->calculate_next_run( $time );
 
         wp_schedule_event( $next_run, $frequency, self::CRON_HOOK );
+
+        if ( $switched ) {
+            restore_current_blog();
+        }
     }
 
     /**
      * Remove the scheduled cron event.
      */
     public function unschedule(): void {
+        $switched = $this->maybe_switch_to_main_site();
+
         $timestamp = wp_next_scheduled( self::CRON_HOOK );
         if ( $timestamp ) {
             wp_unschedule_event( $timestamp, self::CRON_HOOK );
         }
         wp_clear_scheduled_hook( self::CRON_HOOK );
+
+        if ( $switched ) {
+            restore_current_blog();
+        }
     }
 
     /**
@@ -61,6 +76,11 @@ class BM_Backup_Scheduler {
      * happens in separate, time-limited background actions.
      */
     public function run_scheduled_backup(): void {
+        // On multisite, only the main site should run scheduled backups.
+        if ( is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
+            return;
+        }
+
         try {
             $manager = new BM_Backup_Manager();
             $manager->schedule( 'full', 'scheduled' );
@@ -76,6 +96,19 @@ class BM_Backup_Scheduler {
      */
     public function get_next_run() {
         return wp_next_scheduled( self::CRON_HOOK );
+    }
+
+    /**
+     * On multisite, switch to the main site so cron events are registered there.
+     *
+     * @return bool True if a blog switch occurred and restore_current_blog() is needed.
+     */
+    private function maybe_switch_to_main_site(): bool {
+        if ( is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
+            switch_to_blog( get_main_site_id() );
+            return true;
+        }
+        return false;
     }
 
     /**
