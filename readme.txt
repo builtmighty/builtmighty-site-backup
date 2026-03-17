@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups, builtmighty
 Requires at least: 6.0
 Tested up to: 10
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
