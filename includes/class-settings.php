@@ -61,14 +61,24 @@ class BM_Backup_Settings {
         if ( ! $this->is_authorized_user() ) {
             return;
         }
-        $capability = is_multisite() ? 'manage_network_options' : 'manage_options';
-        add_options_page(
-            __( 'BM Site Backup', 'builtmighty-site-backup' ),
-            __( 'BM Site Backup', 'builtmighty-site-backup' ),
-            $capability,
-            'bm-site-backup',
-            [ $this, 'render_page' ]
-        );
+        if ( is_multisite() ) {
+            add_submenu_page(
+                'settings.php',
+                __( 'BM Site Backup', 'builtmighty-site-backup' ),
+                __( 'BM Site Backup', 'builtmighty-site-backup' ),
+                'manage_network_options',
+                'bm-site-backup',
+                [ $this, 'render_page' ]
+            );
+        } else {
+            add_options_page(
+                __( 'BM Site Backup', 'builtmighty-site-backup' ),
+                __( 'BM Site Backup', 'builtmighty-site-backup' ),
+                'manage_options',
+                'bm-site-backup',
+                [ $this, 'render_page' ]
+            );
+        }
     }
 
     /**
@@ -101,7 +111,7 @@ class BM_Backup_Settings {
             true
         );
         wp_localize_script( 'bm-backup-admin', 'bmBackup', [
-            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'ajaxUrl' => is_multisite() ? network_admin_url( 'admin-ajax.php' ) : admin_url( 'admin-ajax.php' ),
             'nonce'   => wp_create_nonce( 'bm_backup_nonce' ),
         ] );
     }
