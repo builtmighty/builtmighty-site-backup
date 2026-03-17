@@ -163,8 +163,10 @@ class BM_Backup_Manager {
         do_action( 'bm_backup_before_export_db', $state );
 
         try {
-            $exporter = new BM_Backup_Database_Exporter();
-            $size     = $exporter->export( $state['db_local_path'] );
+            $settings    = new BM_Backup_Settings();
+            $streamlined = (bool) $settings->get( 'streamlined_mode', false );
+            $exporter    = new BM_Backup_Database_Exporter( $streamlined );
+            $size        = $exporter->export( $state['db_local_path'] );
 
             $state['db_file_size'] = $size;
             $this->save_state( $state );

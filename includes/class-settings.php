@@ -194,6 +194,9 @@ class BM_Backup_Settings {
         $sanitized['notify_on_failure'] = ! empty( $input['notify_on_failure'] );
         $sanitized['notification_email'] = sanitize_email( $input['notification_email'] ?? '' );
 
+        // Database export mode.
+        $sanitized['streamlined_mode'] = ! empty( $input['streamlined_mode'] );
+
         return $sanitized;
     }
 
@@ -215,6 +218,7 @@ class BM_Backup_Settings {
             'notify_on_failure'     => false,
             'notification_email'    => '',
             'hosting_provider'      => '',
+            'streamlined_mode'      => false,
         ];
 
         $saved = get_site_option( self::OPTION_KEY, [] );

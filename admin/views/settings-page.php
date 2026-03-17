@@ -214,6 +214,23 @@ $recent    = $logger->get_recent( 20 );
                 </tr>
             </table>
 
+            <h2><?php esc_html_e( 'Database Export', 'builtmighty-site-backup' ); ?></h2>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Streamlined Mode', 'builtmighty-site-backup' ); ?></th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="bm_backup_settings[streamlined_mode]" value="1"
+                                <?php checked( $settings['streamlined_mode'] ); ?> />
+                            <?php esc_html_e( 'Enable streamlined database export', 'builtmighty-site-backup' ); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e( 'Only exports the last 90 days of WooCommerce orders and their metadata. Log tables are exported as structure only (no data). Produces a smaller, faster backup ideal for dev environments.', 'builtmighty-site-backup' ); ?>
+                        </p>
+                    </td>
+                </tr>
+            </table>
+
             <h2><?php esc_html_e( 'File Exclusions', 'builtmighty-site-backup' ); ?></h2>
             <table class="form-table">
                 <tr>
