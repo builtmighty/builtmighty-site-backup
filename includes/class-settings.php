@@ -147,7 +147,17 @@ class BM_Backup_Settings {
         }
 
         $input = $_POST[ self::OPTION_KEY ] ?? [];
-        $sanitized = $this->sanitize_settings( $input );
+
+        try {
+            $sanitized = $this->sanitize_settings( $input );
+        } catch ( \RuntimeException $e ) {
+            wp_safe_redirect( add_query_arg( [
+                'page'  => 'bm-site-backup',
+                'error' => urlencode( $e->getMessage() ),
+            ], network_admin_url( 'settings.php' ) ) );
+            exit;
+        }
+
         $this->save_all( $sanitized );
 
         wp_safe_redirect( add_query_arg( [
@@ -179,7 +189,9 @@ class BM_Backup_Settings {
         // Secret key — encrypt before storing. If field is empty, keep the old value.
         $raw_secret = $input['spaces_secret_key'] ?? '';
         if ( ! empty( $raw_secret ) && $raw_secret !== '••••••••' ) {
-            $sanitized['spaces_secret_key_enc'] = $this->encrypt( $raw_secret );
+            $encrypted = $this->encrypt( $raw_secret );
+            // Never store empty — keep old value if encryption somehow fails.
+            $sanitized['spaces_secret_key_enc'] = ! empty( $encrypted ) ? $encrypted : ( $current['spaces_secret_key_enc'] ?? '' );
         } else {
             $sanitized['spaces_secret_key_enc'] = $current['spaces_secret_key_enc'] ?? '';
         }
@@ -495,7 +507,13 @@ class BM_Backup_Settings {
         $pepper = defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '';
         $key    = hash( 'sha256', wp_salt( 'auth' ) . $pepper, true );
         $iv     = openssl_random_pseudo_bytes( 16 );
+        if ( $iv === false ) {
+            throw new \RuntimeException( 'Failed to generate IV for encryption — openssl_random_pseudo_bytes() returned false.' );
+        }
         $cipher = openssl_encrypt( $plaintext, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
+        if ( $cipher === false ) {
+            throw new \RuntimeException( 'openssl_encrypt() failed: ' . openssl_error_string() );
+        }
         return base64_encode( $iv . $cipher );
     }
 

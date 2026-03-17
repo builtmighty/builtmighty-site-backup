@@ -27,6 +27,12 @@ $recent    = $logger->get_recent( 20 );
         </div>
     <?php endif; ?>
 
+    <?php if ( ! empty( $_GET['error'] ) ) : ?>
+        <div class="notice notice-error is-dismissible">
+            <p><?php echo esc_html( urldecode( $_GET['error'] ) ); ?></p>
+        </div>
+    <?php endif; ?>
+
     <!-- Tabs -->
     <nav class="nav-tab-wrapper">
         <a href="#storage" class="nav-tab nav-tab-active" data-tab="storage"><?php esc_html_e( 'Storage', 'builtmighty-site-backup' ); ?></a>
