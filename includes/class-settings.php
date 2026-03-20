@@ -13,21 +13,9 @@ class BM_Backup_Settings {
 
     /**
      * Check whether the current user is authorized to manage plugin settings.
-     * Requires a matching email domain in addition to capability checks.
      */
     private function is_authorized_user(): bool {
-        $user = wp_get_current_user();
-        if ( ! $user || ! $user->exists() ) {
-            return false;
-        }
-        $allowed_domains = apply_filters( 'bm_backup_admin_domains', [ 'builtmighty.com' ] );
-        $email           = strtolower( $user->user_email );
-        foreach ( $allowed_domains as $domain ) {
-            if ( str_ends_with( $email, '@' . strtolower( $domain ) ) ) {
-                return true;
-            }
-        }
-        return false;
+        return bm_backup_is_authorized_user();
     }
 
     /**
@@ -201,9 +189,14 @@ class BM_Backup_Settings {
         }
 
         // Schedule.
-        $sanitized['schedule_frequency'] = sanitize_text_field( $input['schedule_frequency'] ?? 'daily' );
-        $sanitized['schedule_time']      = sanitize_text_field( $input['schedule_time'] ?? '03:00' );
-        $sanitized['schedule_day']       = sanitize_text_field( $input['schedule_day'] ?? 'monday' );
+        $frequency = sanitize_text_field( $input['schedule_frequency'] ?? 'daily' );
+        $sanitized['schedule_frequency'] = in_array( $frequency, [ 'daily', 'twicedaily', 'weekly' ], true ) ? $frequency : 'daily';
+
+        $time = sanitize_text_field( $input['schedule_time'] ?? '03:00' );
+        $sanitized['schedule_time'] = preg_match( '/^\d{2}:\d{2}$/', $time ) ? $time : '03:00';
+
+        $day = sanitize_text_field( $input['schedule_day'] ?? 'monday' );
+        $sanitized['schedule_day'] = in_array( $day, [ 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday' ], true ) ? $day : 'monday';
 
         // Retention.
         $sanitized['retention_count'] = max( 1, intval( $input['retention_count'] ?? 7 ) );
@@ -241,7 +234,14 @@ class BM_Backup_Settings {
     /**
      * Get all settings.
      */
+    /** @var array|null Static cache shared across all instances. */
+    private static ?array $cached_settings = null;
+
     public function get_all(): array {
+        if ( self::$cached_settings !== null ) {
+            return self::$cached_settings;
+        }
+
         $defaults = [
             'spaces_access_key'     => '',
             'spaces_secret_key_enc' => '',
@@ -263,7 +263,8 @@ class BM_Backup_Settings {
         ];
 
         $saved = get_site_option( self::OPTION_KEY, [] );
-        return wp_parse_args( $saved, $defaults );
+        self::$cached_settings = wp_parse_args( $saved, $defaults );
+        return self::$cached_settings;
     }
 
     /**
@@ -271,6 +272,7 @@ class BM_Backup_Settings {
      */
     public function save_all( array $settings ): void {
         update_site_option( self::OPTION_KEY, $settings );
+        self::$cached_settings = null; // Invalidate cache.
     }
 
     /**
@@ -425,8 +427,9 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $manager = new BM_Backup_Manager();
-        wp_send_json_success( $manager->get_status() );
+        $manager   = new BM_Backup_Manager();
+        $log_since = isset( $_POST['since'] ) ? absint( $_POST['since'] ) : 0;
+        wp_send_json_success( $manager->get_status( $log_since ) );
     }
 
     /**
@@ -536,10 +539,7 @@ class BM_Backup_Settings {
     private function encrypt( string $plaintext ): string {
         $pepper = defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '';
         $key    = hash( 'sha256', wp_salt( 'auth' ) . $pepper, true );
-        $iv     = openssl_random_pseudo_bytes( 16 );
-        if ( $iv === false ) {
-            throw new \RuntimeException( 'Failed to generate IV for encryption — openssl_random_pseudo_bytes() returned false.' );
-        }
+        $iv = random_bytes( 16 );
         $cipher = openssl_encrypt( $plaintext, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
         if ( $cipher === false ) {
             throw new \RuntimeException( 'openssl_encrypt() failed: ' . openssl_error_string() );

@@ -5,6 +5,7 @@
     var pollInterval = 3000;
     var pollStartTime = null;
     var pollMaxDuration = 6 * 60 * 60 * 1000; // 6 hours.
+    var lastLogIndex = 0;
 
     var stepLabels = ['Starting', 'Exporting DB', 'Archiving Files', 'Uploading DB', 'Uploading Files', 'Cleanup'];
     var stepKeys = ['start', 'export_db', 'archive_files', 'upload_db', 'upload_files', 'cleanup'];
@@ -207,6 +208,7 @@
             })
             .done(function (response) {
                 if (response.success) {
+                    lastLogIndex = 0;
                     showProgress('Backup scheduled. Waiting for first step...', 0, '');
                     setTimeout(startPolling, 1000);
                 } else {
@@ -252,10 +254,19 @@
         $.post(bmBackup.ajaxUrl, {
             action: 'bm_backup_check_status',
             nonce: bmBackup.nonce,
+            since: lastLogIndex,
         }).done(function (response) {
             if (!response.success) return;
 
             var s = response.data;
+
+            // Append any new log entries.
+            if (s.log_entries && s.log_entries.length > 0) {
+                appendLogEntries(s.log_entries);
+            }
+            if (typeof s.log_index !== 'undefined') {
+                lastLogIndex = s.log_index;
+            }
 
             if (!s.active) {
                 stopPolling();
@@ -268,7 +279,7 @@
                     if (s.files_file_size) msg += '  Files: ' + formatBytes(s.files_file_size);
                     showResult('success', msg);
                     dismissStatus();
-                    setTimeout(function () { location.reload(); }, 3000);
+                    setTimeout(function () { location.reload(); }, 5000);
 
                 } else if (s.status === 'failed') {
                     hideProgress();
@@ -353,7 +364,58 @@
         $box.find('.bm-progress-bar-wrap').attr('aria-valuenow', 0);
         $box.find('.bm-progress-bar').css('width', '0');
         $box.find('.bm-step').removeClass('bm-step-active bm-step-done');
+        $box.find('.bm-log-box').empty();
+        lastLogIndex = 0;
     }
+
+    // --- Live Log Box ---
+
+    function ensureLogBox() {
+        var $box = $('#bm-progress-box');
+        if (!$box.find('.bm-log-box').length) {
+            $box.append(
+                '<div class="bm-log-wrap">' +
+                '  <div class="bm-log-header">' +
+                '    <span class="bm-log-title">Live Log</span>' +
+                '    <button type="button" class="bm-log-toggle">Collapse</button>' +
+                '  </div>' +
+                '  <div class="bm-log-box" aria-live="polite" role="log"></div>' +
+                '</div>'
+            );
+        }
+    }
+
+    function appendLogEntries(entries) {
+        var $box = $('#bm-progress-box');
+        if (!$box.length) return;
+
+        ensureLogBox();
+        var $logBox = $box.find('.bm-log-box');
+
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i];
+            var $line = $('<div class="bm-log-line">')
+                .append($('<span class="bm-log-time">').text(entry.time))
+                .append($('<span class="bm-log-message">').text(entry.message));
+            $logBox.append($line);
+        }
+
+        // Auto-scroll to bottom.
+        $logBox.scrollTop($logBox[0].scrollHeight);
+    }
+
+    $(document).on('click', '.bm-log-toggle', function () {
+        var $wrap = $(this).closest('.bm-log-wrap');
+        var $logBox = $wrap.find('.bm-log-box');
+        if ($logBox.is(':visible')) {
+            $logBox.slideUp(200);
+            $(this).text('Expand');
+        } else {
+            $logBox.slideDown(200);
+            $(this).text('Collapse');
+            $logBox.scrollTop($logBox[0].scrollHeight);
+        }
+    });
 
     // --- Result Messages ---
 
@@ -607,6 +669,7 @@
         $.post(bmBackup.ajaxUrl, {
             action: 'bm_backup_check_status',
             nonce: bmBackup.nonce,
+            since: 0,
         }).done(function (response) {
             if (response.success && response.data.active) {
                 // Switch to backup tab if a backup is running.
@@ -614,6 +677,14 @@
                 $('#bm-run-backup').addClass('running').prop('disabled', true);
                 $('#bm-cancel-backup').show();
                 showProgress(response.data.message, response.data.progress, response.data.step);
+
+                // Load existing log entries.
+                if (response.data.log_entries && response.data.log_entries.length > 0) {
+                    appendLogEntries(response.data.log_entries);
+                }
+                if (typeof response.data.log_index !== 'undefined') {
+                    lastLogIndex = response.data.log_index;
+                }
                 startPolling();
             }
         });

@@ -42,6 +42,10 @@ class BM_Devcontainer_Manager {
 			wp_send_json_error( 'Unauthorized' );
 		}
 
+		if ( ! $this->is_authorized_user() ) {
+			wp_send_json_error( 'Unauthorized' );
+		}
+
 		try {
 			$result = $this->check_version();
 			wp_send_json_success( $result );
@@ -57,6 +61,10 @@ class BM_Devcontainer_Manager {
 		check_ajax_referer( 'bm_backup_nonce', 'nonce' );
 
 		if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+			wp_send_json_error( 'Unauthorized' );
+		}
+
+		if ( ! $this->is_authorized_user() ) {
 			wp_send_json_error( 'Unauthorized' );
 		}
 
@@ -79,8 +87,7 @@ class BM_Devcontainer_Manager {
 		// Fetch the global/latest version (public repo — no auth needed).
 		$global = $this->api_get(
 			self::API_BASE . '/repos/' . self::GLOBAL_OWNER . '/' . self::GLOBAL_REPO
-				. '/contents/.devcontainer/devcontainer.json',
-			false
+				. '/contents/.devcontainer/devcontainer.json'
 		);
 		$latest_version = $this->extract_version_from_contents( $global );
 
@@ -170,8 +177,7 @@ class BM_Devcontainer_Manager {
 		// 5. Get the global template tree (recursive).
 		$global_tree_data = $this->api_get(
 			self::API_BASE . '/repos/' . self::GLOBAL_OWNER . '/' . self::GLOBAL_REPO
-				. '/git/trees/' . self::GLOBAL_REF . '?recursive=1',
-			false
+				. '/git/trees/' . self::GLOBAL_REF . '?recursive=1'
 		);
 		$global_tree = $global_tree_data['tree'];
 
@@ -283,6 +289,13 @@ class BM_Devcontainer_Manager {
 			'pr_url' => $pr['html_url'],
 			'branch' => $branch_name,
 		];
+	}
+
+	/**
+	 * Check whether the current user is authorised to manage the plugin.
+	 */
+	private function is_authorized_user(): bool {
+		return bm_backup_is_authorized_user();
 	}
 
 	// ------------------------------------------------------------------

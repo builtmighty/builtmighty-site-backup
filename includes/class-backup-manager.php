@@ -143,6 +143,9 @@ class BM_Backup_Manager {
         $state['status'] = 'running';
         $this->save_state( $state );
 
+        BM_Backup_Log_Stream::start();
+        BM_Backup_Log_Stream::add( 'Backup started (' . $state['type'] . ' / ' . $state['trigger'] . ')' );
+
         do_action( 'bm_backup_after_start', $state );
 
         $this->advance( $state );
@@ -165,11 +168,16 @@ class BM_Backup_Manager {
         try {
             $settings    = new BM_Backup_Settings();
             $streamlined = (bool) $settings->get( 'streamlined_mode', false );
+
+            BM_Backup_Log_Stream::add( 'Exporting database' . ( $streamlined ? ' (streamlined mode)' : '' ) . '...' );
+
             $exporter    = new BM_Backup_Database_Exporter( $streamlined );
             $size        = $exporter->export( $state['db_local_path'] );
 
             $state['db_file_size'] = $size;
             $this->save_state( $state );
+
+            BM_Backup_Log_Stream::add( 'Database export complete (' . size_format( $size ) . ')' );
 
             do_action( 'bm_backup_after_export_db', $state, $state['db_local_path'] );
 
@@ -195,12 +203,16 @@ class BM_Backup_Manager {
         do_action( 'bm_backup_before_archive_files', $state );
 
         try {
+            BM_Backup_Log_Stream::add( 'Archiving files...' );
+
             $settings = new BM_Backup_Settings();
             $archiver = new BM_Backup_File_Archiver( $settings );
             $size     = $archiver->archive( $state['files_local_path'] );
 
             $state['files_file_size'] = $size;
             $this->save_state( $state );
+
+            BM_Backup_Log_Stream::add( 'File archive complete (' . size_format( $size ) . ')' );
 
             do_action( 'bm_backup_after_archive_files', $state, $state['files_local_path'] );
 
@@ -226,6 +238,9 @@ class BM_Backup_Manager {
         do_action( 'bm_backup_before_upload', $state, 'db' );
 
         try {
+            $db_size_str = $state['db_file_size'] ? size_format( $state['db_file_size'] ) : 'unknown size';
+            BM_Backup_Log_Stream::add( 'Uploading database (' . $db_size_str . ')...' );
+
             $settings = new BM_Backup_Settings();
             $client   = new BM_Backup_Spaces_Client( $settings );
 
@@ -236,6 +251,8 @@ class BM_Backup_Manager {
 
             $state['db_remote_key'] = $remote_key;
             $this->save_state( $state );
+
+            BM_Backup_Log_Stream::add( 'Database uploaded to Spaces' );
 
             do_action( 'bm_backup_after_upload', $state, 'db', $remote_key );
 
@@ -261,6 +278,9 @@ class BM_Backup_Manager {
         do_action( 'bm_backup_before_upload', $state, 'files' );
 
         try {
+            $files_size_str = $state['files_file_size'] ? size_format( $state['files_file_size'] ) : 'unknown size';
+            BM_Backup_Log_Stream::add( 'Uploading files archive (' . $files_size_str . ')...' );
+
             $settings = new BM_Backup_Settings();
             $client   = new BM_Backup_Spaces_Client( $settings );
 
@@ -271,6 +291,8 @@ class BM_Backup_Manager {
 
             $state['files_remote_key'] = $remote_key;
             $this->save_state( $state );
+
+            BM_Backup_Log_Stream::add( 'Files archive uploaded to Spaces' );
 
             do_action( 'bm_backup_after_upload', $state, 'files', $remote_key );
 
@@ -293,6 +315,8 @@ class BM_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'cleanup' );
 
+        BM_Backup_Log_Stream::add( 'Running retention cleanup...' );
+
         try {
             // Retention cleanup.
             $settings        = new BM_Backup_Settings();
@@ -304,9 +328,11 @@ class BM_Backup_Manager {
         } catch ( \Exception $e ) {
             // Retention failure is non-critical — log but don't fail the backup.
             error_log( 'BM Site Backup: Retention cleanup failed — ' . $e->getMessage() );
+            BM_Backup_Log_Stream::add( 'Retention cleanup warning: ' . $e->getMessage() );
         }
 
         // Delete temp files.
+        BM_Backup_Log_Stream::add( 'Deleting temporary files...' );
         foreach ( [ $state['db_local_path'], $state['files_local_path'] ] as $path ) {
             if ( $path && file_exists( $path ) ) {
                 unlink( $path );
@@ -327,6 +353,9 @@ class BM_Backup_Manager {
         $state['current_step'] = null;
         $this->save_state( $state );
 
+        BM_Backup_Log_Stream::add( 'Backup complete!' );
+        BM_Backup_Log_Stream::flush();
+
         do_action( 'bm_backup_completed', $state );
     }
 
@@ -334,6 +363,7 @@ class BM_Backup_Manager {
      * Advance to the next step in the chain.
      */
     private function advance( array $state ): void {
+        BM_Backup_Log_Stream::flush();
         $next_index = $state['step_index'] + 1;
 
         if ( $next_index >= count( $state['steps'] ) ) {
@@ -358,6 +388,9 @@ class BM_Backup_Manager {
         $state['status'] = 'failed';
         $state['error']  = $error;
         $this->save_state( $state );
+
+        BM_Backup_Log_Stream::add( 'FAILED: ' . $error );
+        BM_Backup_Log_Stream::flush();
 
         do_action( 'bm_backup_failed', $state, $error );
 
@@ -423,14 +456,17 @@ class BM_Backup_Manager {
     /**
      * Get the current status for the admin UI.
      */
-    public function get_status(): array {
-        $state = $this->get_state();
+    public function get_status( int $log_since = 0 ): array {
+        $state    = $this->get_state();
+        $log_data = BM_Backup_Log_Stream::get( $log_since );
 
         if ( ! $state ) {
             return [
-                'active'  => false,
-                'status'  => 'idle',
-                'message' => 'No backup in progress.',
+                'active'      => false,
+                'status'      => 'idle',
+                'message'     => 'No backup in progress.',
+                'log_entries' => $log_data['entries'],
+                'log_index'   => $log_data['index'],
             ];
         }
 
@@ -460,6 +496,8 @@ class BM_Backup_Manager {
                 'failed'    => 'Backup failed.',
                 default     => '',
             },
+            'log_entries'  => $log_data['entries'],
+            'log_index'    => $log_data['index'],
         ];
     }
 
@@ -496,6 +534,7 @@ class BM_Backup_Manager {
         }
 
         $this->clear_state();
+        BM_Backup_Log_Stream::clear();
 
         return true;
     }

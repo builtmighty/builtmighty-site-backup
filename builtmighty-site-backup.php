@@ -76,8 +76,12 @@ function bm_backup_dependency_notices(): void {
 add_action( 'admin_notices', 'bm_backup_dependency_notices' );
 add_action( 'network_admin_notices', 'bm_backup_dependency_notices' );
 
+// Shared utilities.
+require_once BM_BACKUP_DIR . 'includes/functions.php';
+
 // Plugin classes.
 require_once BM_BACKUP_DIR . 'includes/class-logger.php';
+require_once BM_BACKUP_DIR . 'includes/class-log-stream.php';
 require_once BM_BACKUP_DIR . 'includes/class-settings.php';
 require_once BM_BACKUP_DIR . 'includes/class-api-endpoint.php';
 require_once BM_BACKUP_DIR . 'includes/class-spaces-client.php';

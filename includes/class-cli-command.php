@@ -39,18 +39,23 @@ class BM_Backup_CLI_Command {
      * [--async]
      * : Schedule the backup and return immediately without waiting.
      *
+     * [--timeout=<seconds>]
+     * : Maximum seconds to wait for backup completion (default: 21600 = 6 hours).
+     *
      * ## EXAMPLES
      *
      *     wp bm-backup run
      *     wp bm-backup run --type=db
      *     wp bm-backup run --async
+     *     wp bm-backup run --timeout=3600
      *
      * @param array $args       Positional arguments.
      * @param array $assoc_args Named arguments.
      */
     public function run( $args, $assoc_args ) {
-        $type  = $assoc_args['type'] ?? 'full';
-        $async = isset( $assoc_args['async'] );
+        $type    = $assoc_args['type'] ?? 'full';
+        $async   = isset( $assoc_args['async'] );
+        $timeout = (int) ( $assoc_args['timeout'] ?? 21600 );
 
         try {
             $manager = new BM_Backup_Manager();
@@ -65,8 +70,13 @@ class BM_Backup_CLI_Command {
             // Poll until complete.
             WP_CLI::log( 'Waiting for backup to complete...' );
 
-            $last_step = '';
+            $last_step  = '';
+            $start_time = time();
             while ( true ) {
+                if ( ( time() - $start_time ) > $timeout ) {
+                    WP_CLI::error( "Backup timed out after {$timeout} seconds. The backup may still be running in the background." );
+                }
+
                 sleep( 2 );
 
                 // Process any pending Action Scheduler actions.

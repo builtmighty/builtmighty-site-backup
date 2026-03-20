@@ -45,8 +45,10 @@ class BM_Backup_File_Archiver {
         $exclusions = $this->get_exclusions();
 
         if ( $this->can_use_shell_tar() ) {
+            BM_Backup_Log_Stream::add( 'Using shell tar for file archive' );
             $this->archive_with_tar( $output_path, $wp_root, $exclusions );
         } else {
+            BM_Backup_Log_Stream::add( 'Using PHP streaming gzip for file archive' );
             $this->archive_with_streaming_gzip( $output_path, $wp_root, $exclusions );
         }
 
@@ -111,7 +113,7 @@ class BM_Backup_File_Archiver {
             unlink( $output_path );
         }
 
-        $gzip_level = max( 1, min( 9, (int) apply_filters( 'bm_backup_files_gzip_level', 6 ) ) );
+        $gzip_level = max( 1, min( 9, (int) apply_filters( 'bm_backup_files_gzip_level', 3 ) ) );
         $gz = gzopen( $output_path, 'wb' . $gzip_level );
         if ( ! $gz ) {
             throw new \Exception( "Failed to open output file for writing: {$output_path}" );
@@ -120,7 +122,7 @@ class BM_Backup_File_Archiver {
         try {
             $dir_iterator = new RecursiveDirectoryIterator(
                 $wp_root,
-                RecursiveDirectoryIterator::SKIP_DOTS | RecursiveDirectoryIterator::FOLLOW_SYMLINKS
+                RecursiveDirectoryIterator::SKIP_DOTS
             );
 
             $filter = new RecursiveCallbackFilterIterator(
@@ -138,12 +140,25 @@ class BM_Backup_File_Archiver {
                 $real_path     = $file->getRealPath();
                 $relative_path = ltrim( str_replace( $wp_root, '', $real_path ), '/' );
 
+                // Skip paths that exceed ustar's 255-char limit (155 prefix + 100 name).
+                if ( strlen( $relative_path ) > 255 ) {
+                    BM_Backup_Log_Stream::add( 'Skipped (path too long): ' . substr( $relative_path, 0, 80 ) . '...' );
+                    continue;
+                }
+
                 if ( $file->isDir() ) {
                     // Directory entry: trailing slash, zero size, typeflag '5'.
                     gzwrite( $gz, $this->build_tar_header( $relative_path . '/', 0, $file->getMTime(), $file->getPerms(), '5' ) );
 
                 } elseif ( $file->isFile() && $file->isReadable() ) {
                     $size = $file->getSize();
+
+                    // Skip files > 8 GB (ustar size field is 11 octal digits = ~8 GB max).
+                    if ( $size > 8589934591 ) {
+                        BM_Backup_Log_Stream::add( 'Skipped (> 8 GB): ' . $relative_path );
+                        continue;
+                    }
+
                     gzwrite( $gz, $this->build_tar_header( $relative_path, $size, $file->getMTime(), $file->getPerms(), '0' ) );
 
                     // Stream file contents in 64 KB chunks directly into gzip.

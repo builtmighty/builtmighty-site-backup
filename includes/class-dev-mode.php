@@ -139,24 +139,8 @@ class BM_Backup_Dev_Mode {
 
 	/**
 	 * Check whether the current user is authorised to manage the plugin.
-	 *
-	 * Mirrors the logic in BM_Backup_Settings::is_authorized_user().
 	 */
 	private function is_authorized_user(): bool {
-		$user = wp_get_current_user();
-		if ( ! $user || ! $user->exists() ) {
-			return false;
-		}
-
-		$allowed_domains = apply_filters( 'bm_backup_admin_domains', [ 'builtmighty.com' ] );
-		$email           = strtolower( $user->user_email );
-
-		foreach ( $allowed_domains as $domain ) {
-			if ( str_ends_with( $email, '@' . strtolower( $domain ) ) ) {
-				return true;
-			}
-		}
-
-		return false;
+		return bm_backup_is_authorized_user();
 	}
 }

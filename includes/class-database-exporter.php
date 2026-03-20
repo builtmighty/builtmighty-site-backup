@@ -72,24 +72,30 @@ class BM_Backup_Database_Exporter {
      */
     private function export_with_mysqldump( string $output_path ): int {
         $gzip_level = $this->get_gzip_level();
+        $err_path   = $output_path . '.err';
 
         $env_command = sprintf(
             'MYSQL_PWD=%s mysqldump --single-transaction --quick --skip-lock-tables --set-charset '
             . '--default-character-set=utf8mb4 --no-tablespaces '
-            . '-h %s -u %s %s 2>&1 | gzip -%d > %s',
+            . '-h %s -u %s %s 2>%s | gzip -%d > %s',
             escapeshellarg( DB_PASSWORD ),
             escapeshellarg( DB_HOST ),
             escapeshellarg( DB_USER ),
             escapeshellarg( DB_NAME ),
+            escapeshellarg( $err_path ),
             $gzip_level,
             escapeshellarg( $output_path )
         );
 
+        BM_Backup_Log_Stream::add( 'Using mysqldump for database export' );
+
         exec( $env_command, $output, $return_code );
 
-        if ( $return_code !== 0 ) {
-            $error = implode( "\n", $output );
-            throw new \Exception( "mysqldump failed (exit {$return_code}): {$error}" );
+        $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
+        @unlink( $err_path );
+
+        if ( $return_code !== 0 || ! empty( $stderr ) ) {
+            throw new \Exception( "mysqldump failed (exit {$return_code}): {$stderr}" );
         }
 
         $size = filesize( $output_path );
@@ -118,9 +124,13 @@ class BM_Backup_Database_Exporter {
 
         try {
             $this->write_preamble( $gz );
-            $tables = $this->get_tables();
+            $tables      = $this->get_tables();
+            $table_count = count( $tables );
 
-            foreach ( $tables as $table ) {
+            BM_Backup_Log_Stream::add( 'Using PHP fallback for database export (' . $table_count . ' tables)' );
+
+            foreach ( $tables as $i => $table ) {
+                BM_Backup_Log_Stream::add( 'Exporting table ' . ( $i + 1 ) . '/' . $table_count . ': ' . $table );
                 $this->export_table( $gz, $table );
             }
 
@@ -144,14 +154,16 @@ class BM_Backup_Database_Exporter {
     /**
      * Streamlined hybrid: mysqldump for bulk tables, PHP for special tables.
      *
-     * 1. Runs mysqldump with --ignore-table for log/order tables.
-     * 2. Appends filtered/structure-only tables via PHP (concatenated gzip members).
+     * 1. Runs mysqldump (uncompressed) to a temp file.
+     * 2. Streams the mysqldump output + PHP special tables through a single gzip handle.
+     *
+     * This avoids concatenated gzip members (RFC 1952) which some tools don't support.
      */
     private function export_streamlined_hybrid( string $output_path ): int {
         $special = $this->get_streamlined_special_tables();
         $gzip_level = $this->get_gzip_level();
 
-        // Step 1: mysqldump everything except special tables.
+        // Step 1: mysqldump everything except special tables to a temp SQL file.
         $ignore_tables = array_merge(
             $special['log_tables'],
             array_keys( $special['order_tables'] )
@@ -169,36 +181,61 @@ class BM_Backup_Database_Exporter {
             $ignore_flags .= ' --ignore-table=' . escapeshellarg( DB_NAME . '.' . $table );
         }
 
+        BM_Backup_Log_Stream::add( 'Using mysqldump (streamlined) for bulk tables' );
+
+        $raw_path = $output_path . '.raw.sql';
+        $err_path = $output_path . '.err';
+
         $env_command = sprintf(
             'MYSQL_PWD=%s mysqldump --single-transaction --quick --skip-lock-tables --set-charset '
             . '--default-character-set=utf8mb4 --no-tablespaces '
-            . '-h %s -u %s%s %s 2>&1 | gzip -%d > %s',
+            . '-h %s -u %s%s %s > %s 2>%s',
             escapeshellarg( DB_PASSWORD ),
             escapeshellarg( DB_HOST ),
             escapeshellarg( DB_USER ),
             $ignore_flags,
             escapeshellarg( DB_NAME ),
-            $gzip_level,
-            escapeshellarg( $output_path )
+            escapeshellarg( $raw_path ),
+            escapeshellarg( $err_path )
         );
 
         exec( $env_command, $output, $return_code );
 
+        $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
+        @unlink( $err_path );
+
         if ( $return_code !== 0 ) {
-            $error = implode( "\n", $output );
-            throw new \Exception( "mysqldump failed (exit {$return_code}): {$error}" );
+            @unlink( $raw_path );
+            throw new \Exception( "mysqldump failed (exit {$return_code}): {$stderr}" );
         }
 
-        // Step 2: Append special tables via PHP (gzip concatenation — RFC 1952).
-        $gz = gzopen( $output_path, 'ab' . $gzip_level );
+        // Step 2: Stream mysqldump SQL + special tables through a single gzip handle.
+        $gz = gzopen( $output_path, 'wb' . $gzip_level );
         if ( ! $gz ) {
-            throw new \Exception( "Failed to open output file for appending: {$output_path}" );
+            @unlink( $raw_path );
+            throw new \Exception( "Failed to open output file for writing: {$output_path}" );
         }
 
         try {
+            // Stream the raw mysqldump SQL into the gzip handle in chunks.
+            $fh = fopen( $raw_path, 'rb' );
+            if ( ! $fh ) {
+                throw new \Exception( "Failed to read mysqldump output: {$raw_path}" );
+            }
+            while ( ! feof( $fh ) ) {
+                $chunk = fread( $fh, 65536 ); // 64 KB chunks.
+                if ( $chunk !== false && $chunk !== '' ) {
+                    gzwrite( $gz, $chunk );
+                }
+            }
+            fclose( $fh );
+
+            // Append special tables via PHP into the same gzip stream.
+            BM_Backup_Log_Stream::add( 'Appending filtered/structure-only tables via PHP' );
             $this->export_streamlined_special_tables( $gz, $special );
         } finally {
             gzclose( $gz );
+            @unlink( $raw_path );
         }
 
         $size = filesize( $output_path );
@@ -228,7 +265,10 @@ class BM_Backup_Database_Exporter {
             global $wpdb;
 
             $this->write_preamble( $gz );
-            $tables = $this->get_tables();
+            $tables      = $this->get_tables();
+            $table_count = count( $tables );
+
+            BM_Backup_Log_Stream::add( 'Using PHP fallback for streamlined export (' . $table_count . ' tables)' );
 
             $log_tables   = $special['log_tables'];
             $order_tables = $special['order_tables'];
@@ -237,7 +277,8 @@ class BM_Backup_Database_Exporter {
             $order_ids      = $this->get_recent_order_ids();
             $order_item_ids = $this->get_order_item_ids( $order_ids );
 
-            foreach ( $tables as $table ) {
+            foreach ( $tables as $i => $table ) {
+                BM_Backup_Log_Stream::add( 'Exporting table ' . ( $i + 1 ) . '/' . $table_count . ': ' . $table );
                 if ( in_array( $table, $log_tables, true ) ) {
                     // Structure only for log tables.
                     $this->export_table_structure_only( $gz, $table );
@@ -468,18 +509,18 @@ class BM_Backup_Database_Exporter {
         return $item_ids;
     }
 
+    /** @var array<string, true>|null Cached set of all table names. */
+    private ?array $table_cache = null;
+
     /**
-     * Check if a table exists in the database.
+     * Check if a table exists in the database (uses a cached SHOW TABLES).
      */
     private function table_exists( string $table ): bool {
-        global $wpdb;
+        if ( $this->table_cache === null ) {
+            $this->table_cache = array_fill_keys( $this->get_tables(), true );
+        }
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $result = $wpdb->get_var(
-            $wpdb->prepare( 'SHOW TABLES LIKE %s', $table )
-        );
-
-        return $result === $table;
+        return isset( $this->table_cache[ $table ] );
     }
 
     // ──────────────────────────────────────────────
@@ -734,6 +775,7 @@ class BM_Backup_Database_Exporter {
         ) );
 
         $old_order_ids = array_diff( $all_order_ids, $recent_order_ids );
+        unset( $all_order_ids );
 
         if ( empty( $old_order_ids ) ) {
             // No old orders to exclude — export everything normally.
@@ -746,7 +788,6 @@ class BM_Backup_Database_Exporter {
         // We chunk the exclusion list and use NOT IN to keep memory bounded.
         $last_id       = 0;
         $insert_buffer = [];
-        $old_chunks    = array_chunk( array_values( $old_order_ids ), 500 );
 
         // Build a temporary table approach isn't feasible, so we use a different strategy:
         // Paginate through postmeta by PK and skip rows where post_id is in the old set.
@@ -800,7 +841,7 @@ class BM_Backup_Database_Exporter {
      * Get the configured gzip compression level.
      */
     private function get_gzip_level(): int {
-        return max( 1, min( 9, (int) apply_filters( 'bm_backup_db_gzip_level', 6 ) ) );
+        return max( 1, min( 9, (int) apply_filters( 'bm_backup_db_gzip_level', 3 ) ) );
     }
 
     /**

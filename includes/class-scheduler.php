@@ -24,23 +24,22 @@ class BM_Backup_Scheduler {
     public function schedule(): void {
         $switched = $this->maybe_switch_to_main_site();
 
-        if ( wp_next_scheduled( self::CRON_HOOK ) ) {
+        try {
+            if ( wp_next_scheduled( self::CRON_HOOK ) ) {
+                return;
+            }
+
+            $settings  = new BM_Backup_Settings();
+            $frequency = $settings->get( 'schedule_frequency', 'daily' );
+            $time      = $settings->get( 'schedule_time', '03:00' );
+
+            $next_run = $this->calculate_next_run( $time );
+
+            wp_schedule_event( $next_run, $frequency, self::CRON_HOOK );
+        } finally {
             if ( $switched ) {
                 restore_current_blog();
             }
-            return;
-        }
-
-        $settings  = new BM_Backup_Settings();
-        $frequency = $settings->get( 'schedule_frequency', 'daily' );
-        $time      = $settings->get( 'schedule_time', '03:00' );
-
-        $next_run = $this->calculate_next_run( $time );
-
-        wp_schedule_event( $next_run, $frequency, self::CRON_HOOK );
-
-        if ( $switched ) {
-            restore_current_blog();
         }
     }
 
@@ -50,14 +49,16 @@ class BM_Backup_Scheduler {
     public function unschedule(): void {
         $switched = $this->maybe_switch_to_main_site();
 
-        $timestamp = wp_next_scheduled( self::CRON_HOOK );
-        if ( $timestamp ) {
-            wp_unschedule_event( $timestamp, self::CRON_HOOK );
-        }
-        wp_clear_scheduled_hook( self::CRON_HOOK );
-
-        if ( $switched ) {
-            restore_current_blog();
+        try {
+            $timestamp = wp_next_scheduled( self::CRON_HOOK );
+            if ( $timestamp ) {
+                wp_unschedule_event( $timestamp, self::CRON_HOOK );
+            }
+            wp_clear_scheduled_hook( self::CRON_HOOK );
+        } finally {
+            if ( $switched ) {
+                restore_current_blog();
+            }
         }
     }
 
