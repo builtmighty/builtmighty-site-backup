@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups, builtmighty
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.13.0
+Stable tag: 1.14.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,15 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 1.14.0 =
+* Security: Replaced MYSQL_PWD environment variable with --defaults-extra-file for mysqldump authentication (no longer visible in /proc on shared hosting)
+* Fixed binary/BLOB column handling in PHP database export — binary data now exported as hex literals instead of string escaping
+* Fixed symlink getRealPath() returning false on broken symlinks — now gracefully skipped with log message
+* Added S3 minimum part size enforcement (5 MB floor) to prevent cryptic upload errors from filtered values
+* Added empty client_path guard on download endpoint for defense-in-depth path traversal protection
+* Improved retention manager — database and file prefix cleanup now independent; partial failures no longer block the other prefix
+* Fixed misleading timezone comment in scheduler (uses WordPress timezone, not server timezone)
 
 = 1.13.0 =
 * Devcontainer version check now treats missing version field as outdated instead of erroring

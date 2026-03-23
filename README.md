@@ -29,6 +29,7 @@ wp plugin install https://github.com/builtmighty/builtmighty-site-backup/release
 - **Codespace integration** — REST API endpoint and bootstrap key for the pipeline
 - **Devcontainer management** — check and update .devcontainer config via GitHub API
 - **WP-CLI support** — full command-line interface with timeout control
+- **Pressable & managed hosting compatible** — follows symlinked plugins, secure mysqldump via defaults file
 - **Multisite compatible** — settings stored at the network level
 - **Cancel in-progress backups** — stop a running backup from the admin UI or WP-CLI
 - **Developer filters** — tune batch size, part size, concurrency, and gzip levels via `add_filter()`
@@ -142,8 +143,8 @@ A **Bootstrap Key** (available on the settings page) combines the site URL and A
 Backups are executed as a chain of background steps via Action Scheduler:
 
 1. **Start** — initialize backup, create log entry
-2. **Export Database** — stream a gzipped SQL dump using primary-key pagination
-3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, PharData fallback)
+2. **Export Database** — stream a gzipped SQL dump using primary-key pagination (binary columns exported as hex)
+3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, streaming PHP fallback); symlinked plugins are dereferenced and included
 4. **Upload Database** — multipart upload to Spaces (25 MB parts, 5 concurrent)
 5. **Upload Files** — multipart upload to Spaces
 6. **Cleanup** — run retention policy, delete temp files, mark complete
@@ -154,6 +155,7 @@ Each step runs independently to avoid timeout issues on resource-constrained hos
 
 - Secret keys encrypted with AES-256-CBC using WordPress salts
 - Optional `BM_BACKUP_SECRET` constant in `wp-config.php` adds a second pepper to AES-256-CBC key derivation
+- Database credentials passed to mysqldump via temporary `--defaults-extra-file` (not visible in process lists or `/proc`)
 - Credential fields are write-only — values never appear in page source or form fields
 - Settings page restricted to authorized email domains (default: `@builtmighty.com`)
 - REST API protected with Bearer token authentication
