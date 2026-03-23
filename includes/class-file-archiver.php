@@ -92,7 +92,7 @@ class BM_Backup_File_Archiver {
         $output_escaped = escapeshellarg( $output_path );
         $root_escaped   = escapeshellarg( $wp_root );
 
-        $command = "tar -czf {$output_escaped}{$exclude_args} -C {$root_escaped} . 2>&1";
+        $command = "tar -czhf {$output_escaped}{$exclude_args} -C {$root_escaped} . 2>&1";
 
         exec( $command, $output, $return_code );
 
@@ -122,23 +122,41 @@ class BM_Backup_File_Archiver {
         try {
             $dir_iterator = new RecursiveDirectoryIterator(
                 $wp_root,
-                RecursiveDirectoryIterator::SKIP_DOTS
+                RecursiveDirectoryIterator::SKIP_DOTS | RecursiveDirectoryIterator::FOLLOW_SYMLINKS
             );
+
+            // Track visited directory real paths to prevent circular symlink loops.
+            $visited_dirs = [];
 
             $filter = new RecursiveCallbackFilterIterator(
                 $dir_iterator,
-                function ( $file ) use ( $wp_root, $exclusions ) {
-                    $real_path     = $file->getRealPath();
-                    $relative_path = ltrim( str_replace( $wp_root, '', $real_path ), '/' );
-                    return ! $this->is_excluded( $relative_path, $exclusions );
+                function ( $file ) use ( $wp_root, $exclusions, &$visited_dirs ) {
+                    $pathname      = $file->getPathname();
+                    $relative_path = ltrim( str_replace( $wp_root, '', $pathname ), '/' );
+
+                    if ( $this->is_excluded( $relative_path, $exclusions ) ) {
+                        return false;
+                    }
+
+                    // Circular symlink protection: skip directories we've already traversed.
+                    if ( $file->isDir() ) {
+                        $real = $file->getRealPath();
+                        if ( $real === false || isset( $visited_dirs[ $real ] ) ) {
+                            BM_Backup_Log_Stream::add( 'Skipped (unresolvable or circular): ' . $relative_path );
+                            return false;
+                        }
+                        $visited_dirs[ $real ] = true;
+                    }
+
+                    return true;
                 }
             );
 
             $iterator = new RecursiveIteratorIterator( $filter, RecursiveIteratorIterator::SELF_FIRST );
 
             foreach ( $iterator as $file ) {
-                $real_path     = $file->getRealPath();
-                $relative_path = ltrim( str_replace( $wp_root, '', $real_path ), '/' );
+                $pathname      = $file->getPathname();
+                $relative_path = ltrim( str_replace( $wp_root, '', $pathname ), '/' );
 
                 // Skip paths that exceed ustar's 255-char limit (155 prefix + 100 name).
                 if ( strlen( $relative_path ) > 255 ) {
@@ -162,7 +180,7 @@ class BM_Backup_File_Archiver {
                     gzwrite( $gz, $this->build_tar_header( $relative_path, $size, $file->getMTime(), $file->getPerms(), '0' ) );
 
                     // Stream file contents in 64 KB chunks directly into gzip.
-                    $fh = fopen( $real_path, 'rb' );
+                    $fh = fopen( $file->getRealPath(), 'rb' );
                     if ( $fh ) {
                         while ( ! feof( $fh ) ) {
                             $chunk = fread( $fh, 65536 );

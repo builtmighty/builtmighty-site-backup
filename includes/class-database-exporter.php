@@ -73,37 +73,40 @@ class BM_Backup_Database_Exporter {
     private function export_with_mysqldump( string $output_path ): int {
         $gzip_level = $this->get_gzip_level();
         $err_path   = $output_path . '.err';
+        $defaults   = $this->write_mysql_defaults();
 
-        $env_command = sprintf(
-            'MYSQL_PWD=%s mysqldump --single-transaction --quick --skip-lock-tables --set-charset '
-            . '--default-character-set=utf8mb4 --no-tablespaces '
-            . '-h %s -u %s %s 2>%s | gzip -%d > %s',
-            escapeshellarg( DB_PASSWORD ),
-            escapeshellarg( DB_HOST ),
-            escapeshellarg( DB_USER ),
-            escapeshellarg( DB_NAME ),
-            escapeshellarg( $err_path ),
-            $gzip_level,
-            escapeshellarg( $output_path )
-        );
+        try {
+            $command = sprintf(
+                'mysqldump --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
+                . '--default-character-set=utf8mb4 --no-tablespaces '
+                . '%s 2>%s | gzip -%d > %s',
+                escapeshellarg( $defaults ),
+                escapeshellarg( DB_NAME ),
+                escapeshellarg( $err_path ),
+                $gzip_level,
+                escapeshellarg( $output_path )
+            );
 
-        BM_Backup_Log_Stream::add( 'Using mysqldump for database export' );
+            BM_Backup_Log_Stream::add( 'Using mysqldump for database export' );
 
-        exec( $env_command, $output, $return_code );
+            exec( $command, $output, $return_code );
 
-        $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
-        @unlink( $err_path );
+            $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
+            @unlink( $err_path );
 
-        if ( $return_code !== 0 || ! empty( $stderr ) ) {
-            throw new \Exception( "mysqldump failed (exit {$return_code}): {$stderr}" );
+            if ( $return_code !== 0 || ! empty( $stderr ) ) {
+                throw new \Exception( "mysqldump failed (exit {$return_code}): {$stderr}" );
+            }
+
+            $size = filesize( $output_path );
+            if ( $size === false || $size === 0 ) {
+                throw new \Exception( 'mysqldump produced an empty file — check database credentials.' );
+            }
+
+            return $size;
+        } finally {
+            @unlink( $defaults );
         }
-
-        $size = filesize( $output_path );
-        if ( $size === false || $size === 0 ) {
-            throw new \Exception( 'mysqldump produced an empty file — check database credentials.' );
-        }
-
-        return $size;
     }
 
     /**
@@ -185,21 +188,24 @@ class BM_Backup_Database_Exporter {
 
         $raw_path = $output_path . '.raw.sql';
         $err_path = $output_path . '.err';
+        $defaults = $this->write_mysql_defaults();
 
-        $env_command = sprintf(
-            'MYSQL_PWD=%s mysqldump --single-transaction --quick --skip-lock-tables --set-charset '
-            . '--default-character-set=utf8mb4 --no-tablespaces '
-            . '-h %s -u %s%s %s > %s 2>%s',
-            escapeshellarg( DB_PASSWORD ),
-            escapeshellarg( DB_HOST ),
-            escapeshellarg( DB_USER ),
-            $ignore_flags,
-            escapeshellarg( DB_NAME ),
-            escapeshellarg( $raw_path ),
-            escapeshellarg( $err_path )
-        );
+        try {
+            $command = sprintf(
+                'mysqldump --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
+                . '--default-character-set=utf8mb4 --no-tablespaces '
+                . '%s %s > %s 2>%s',
+                escapeshellarg( $defaults ),
+                $ignore_flags,
+                escapeshellarg( DB_NAME ),
+                escapeshellarg( $raw_path ),
+                escapeshellarg( $err_path )
+            );
 
-        exec( $env_command, $output, $return_code );
+            exec( $command, $output, $return_code );
+        } finally {
+            @unlink( $defaults );
+        }
 
         $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
         @unlink( $err_path );
@@ -570,8 +576,9 @@ class BM_Backup_Database_Exporter {
         }
 
         // Export data in chunks to avoid oversized queries.
-        $chunks = array_chunk( $allowed_ids, 500 );
-        $pk_column = $this->get_primary_key( $table );
+        $chunks      = array_chunk( $allowed_ids, 500 );
+        $pk_column   = $this->get_primary_key( $table );
+        $binary_cols = $this->get_binary_columns( $table );
 
         foreach ( $chunks as $chunk ) {
             $placeholders = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
@@ -597,7 +604,7 @@ class BM_Backup_Database_Exporter {
 
                     foreach ( $rows as $row ) {
                         $last_id = $row[ $pk_column ];
-                        $insert_buffer[] = $this->build_values_string( $row );
+                        $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                         if ( count( $insert_buffer ) >= $this->insert_batch ) {
                             $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -632,7 +639,7 @@ class BM_Backup_Database_Exporter {
                     }
 
                     foreach ( $rows as $row ) {
-                        $insert_buffer[] = $this->build_values_string( $row );
+                        $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                         if ( count( $insert_buffer ) >= $this->insert_batch ) {
                             $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -672,6 +679,7 @@ class BM_Backup_Database_Exporter {
         gzwrite( $gz, $create[1] . ";\n\n" );
 
         // Pass 1: All non-order posts.
+        $binary_cols   = $this->get_binary_columns( $table );
         $last_id       = 0;
         $insert_buffer = [];
 
@@ -691,7 +699,7 @@ class BM_Backup_Database_Exporter {
 
             foreach ( $rows as $row ) {
                 $last_id = $row['ID'];
-                $insert_buffer[] = $this->build_values_string( $row );
+                $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                 if ( count( $insert_buffer ) >= $this->insert_batch ) {
                     $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -731,7 +739,7 @@ class BM_Backup_Database_Exporter {
 
                     foreach ( $rows as $row ) {
                         $last_id = $row['ID'];
-                        $insert_buffer[] = $this->build_values_string( $row );
+                        $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                         if ( count( $insert_buffer ) >= $this->insert_batch ) {
                             $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -786,10 +794,10 @@ class BM_Backup_Database_Exporter {
 
         // Export postmeta excluding old order post_ids, using PK pagination.
         // We chunk the exclusion list and use NOT IN to keep memory bounded.
+        $binary_cols   = $this->get_binary_columns( $table );
         $last_id       = 0;
         $insert_buffer = [];
 
-        // Build a temporary table approach isn't feasible, so we use a different strategy:
         // Paginate through postmeta by PK and skip rows where post_id is in the old set.
         $old_set = array_flip( $old_order_ids );
 
@@ -815,7 +823,7 @@ class BM_Backup_Database_Exporter {
                     continue;
                 }
 
-                $insert_buffer[] = $this->build_values_string( $row );
+                $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                 if ( count( $insert_buffer ) >= $this->insert_batch ) {
                     $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -836,6 +844,25 @@ class BM_Backup_Database_Exporter {
     // ──────────────────────────────────────────────
     //  Shared methods (used by both full and streamlined paths)
     // ──────────────────────────────────────────────
+
+    /**
+     * Write a temporary MySQL defaults file for mysqldump authentication.
+     *
+     * Avoids MYSQL_PWD environment variable which is visible in /proc and
+     * deprecated in MySQL 8.0.
+     *
+     * @return string Path to the temporary .cnf file. Caller must unlink when done.
+     */
+    private function write_mysql_defaults(): string {
+        $path     = get_temp_dir() . 'bm-backup-my-' . wp_generate_password( 8, false ) . '.cnf';
+        $contents = "[client]\n"
+            . 'user=' . DB_USER . "\n"
+            . 'password=' . DB_PASSWORD . "\n"
+            . 'host=' . DB_HOST . "\n";
+        file_put_contents( $path, $contents );
+        chmod( $path, 0600 );
+        return $path;
+    }
 
     /**
      * Get the configured gzip compression level.
@@ -932,6 +959,7 @@ class BM_Backup_Database_Exporter {
     private function export_table_data_pk( $gz, string $table, string $pk_column ): void {
         global $wpdb;
 
+        $binary_cols   = $this->get_binary_columns( $table );
         $last_id       = 0;
         $insert_buffer = [];
 
@@ -952,7 +980,7 @@ class BM_Backup_Database_Exporter {
 
             foreach ( $rows as $row ) {
                 $last_id = $row[ $pk_column ];
-                $insert_buffer[] = $this->build_values_string( $row );
+                $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                 if ( count( $insert_buffer ) >= $this->insert_batch ) {
                     $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -974,6 +1002,7 @@ class BM_Backup_Database_Exporter {
     private function export_table_data_offset( $gz, string $table ): void {
         global $wpdb;
 
+        $binary_cols   = $this->get_binary_columns( $table );
         $offset        = 0;
         $batch_size    = 500;
         $insert_buffer = [];
@@ -993,7 +1022,7 @@ class BM_Backup_Database_Exporter {
             }
 
             foreach ( $rows as $row ) {
-                $insert_buffer[] = $this->build_values_string( $row );
+                $insert_buffer[] = $this->build_values_string( $row, $binary_cols );
 
                 if ( count( $insert_buffer ) >= $this->insert_batch ) {
                     $this->flush_inserts( $gz, $table, $insert_buffer );
@@ -1012,18 +1041,43 @@ class BM_Backup_Database_Exporter {
 
     /**
      * Build the VALUES string for a single row.
+     *
+     * @param array $row          Associative row data.
+     * @param array $binary_cols  Set of column names that are binary types (keys = names).
      */
-    private function build_values_string( array $row ): string {
+    private function build_values_string( array $row, array $binary_cols = [] ): string {
         $values = [];
-        foreach ( $row as $value ) {
+        foreach ( $row as $key => $value ) {
             if ( is_null( $value ) ) {
                 $values[] = 'NULL';
+            } elseif ( isset( $binary_cols[ $key ] ) && $value !== '' ) {
+                $values[] = '0x' . bin2hex( $value );
             } else {
                 $values[] = "'" . esc_sql( $value ) . "'";
             }
         }
 
         return '(' . implode( ',', $values ) . ')';
+    }
+
+    /**
+     * Get the set of binary column names for a table.
+     *
+     * @return array Column names as keys (for isset() lookups).
+     */
+    private function get_binary_columns( string $table ): array {
+        global $wpdb;
+
+        $columns = $wpdb->get_results( "SHOW COLUMNS FROM `{$table}`", ARRAY_A );
+        $binary  = [];
+
+        foreach ( $columns as $col ) {
+            if ( preg_match( '/binary|blob|bit/i', $col['Type'] ) ) {
+                $binary[ $col['Field'] ] = true;
+            }
+        }
+
+        return $binary;
     }
 
     /**

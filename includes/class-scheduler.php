@@ -129,7 +129,7 @@ class BM_Backup_Scheduler {
         $hour  = (int) ( $parts[0] ?? 3 );
         $min   = (int) ( $parts[1] ?? 0 );
 
-        // Use server timezone.
+        // Use WordPress timezone (Settings > General).
         $now  = current_time( 'timestamp' );
         $today = strtotime( "today {$hour}:{$min}", $now );
 

@@ -73,7 +73,7 @@ class BM_Backup_Spaces_Client {
     public function upload( string $local_path, string $remote_key ): string {
         $full_key    = $this->client_path . '/' . ltrim( $remote_key, '/' );
         $max_retries = (int) apply_filters( 'bm_backup_upload_max_retries', 3 );
-        $part_size   = (int) apply_filters( 'bm_backup_upload_part_size', 25 * 1024 * 1024 );
+        $part_size   = max( 5 * 1024 * 1024, (int) apply_filters( 'bm_backup_upload_part_size', 25 * 1024 * 1024 ) );
         $concurrency = (int) apply_filters( 'bm_backup_upload_concurrency', 5 );
 
         BM_Backup_Log_Stream::add( 'Starting multipart upload: ' . $remote_key );

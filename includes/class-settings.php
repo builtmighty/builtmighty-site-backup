@@ -520,6 +520,9 @@ class BM_Backup_Settings {
 
         // Validate that the key belongs to this client's path to prevent path traversal.
         $client_path = rtrim( $this->get( 'client_path' ), '/' );
+        if ( empty( $client_path ) ) {
+            wp_send_json_error( 'Client path not configured.' );
+        }
         if ( ! str_starts_with( $key, $client_path . '/' ) ) {
             wp_send_json_error( 'Invalid file key.' );
         }

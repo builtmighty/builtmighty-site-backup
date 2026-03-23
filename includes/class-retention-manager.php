@@ -23,8 +23,20 @@ class BM_Backup_Retention_Manager {
      * @return array Summary of what was deleted.
      */
     public function prune(): array {
-        $db_deleted    = $this->prune_prefix( 'databases/' );
-        $files_deleted = $this->prune_prefix( 'files/' );
+        $db_deleted    = 0;
+        $files_deleted = 0;
+
+        try {
+            $db_deleted = $this->prune_prefix( 'databases/' );
+        } catch ( \Exception $e ) {
+            BM_Backup_Log_Stream::add( 'Retention cleanup failed for databases: ' . $e->getMessage() );
+        }
+
+        try {
+            $files_deleted = $this->prune_prefix( 'files/' );
+        } catch ( \Exception $e ) {
+            BM_Backup_Log_Stream::add( 'Retention cleanup failed for files: ' . $e->getMessage() );
+        }
 
         return [
             'databases_deleted' => $db_deleted,
