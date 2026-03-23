@@ -3,7 +3,7 @@
  * Plugin Name: BuiltMighty Site Backup
  * Plugin URI: https://github.com/builtmighty/builtmighty-site-backup
  * Description: Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand backups of the database and file system for use with the staged-loader Codespace pipeline.
- * Version: 1.14.0
+ * Version: 1.15.0
  * Author: Built Mighty
  * Author URI: https://builtmighty.com
  * License: GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'BM_BACKUP_VERSION', '1.14.0' );
+define( 'BM_BACKUP_VERSION', '1.15.0' );
 define( 'BM_BACKUP_FILE', __FILE__ );
 define( 'BM_BACKUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BM_BACKUP_URL', plugin_dir_url( __FILE__ ) );
@@ -92,6 +92,16 @@ require_once BM_BACKUP_DIR . 'includes/class-scheduler.php';
 require_once BM_BACKUP_DIR . 'includes/class-backup-manager.php';
 require_once BM_BACKUP_DIR . 'includes/class-dev-mode.php';
 require_once BM_BACKUP_DIR . 'includes/class-devcontainer-manager.php';
+
+// GitHub update checker.
+if ( file_exists( BM_BACKUP_DIR . 'updates/plugin-update-checker.php' ) ) {
+    require_once BM_BACKUP_DIR . 'updates/plugin-update-checker.php';
+    \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+        'https://github.com/builtmighty/builtmighty-site-backup',
+        BM_BACKUP_FILE,
+        'builtmighty-site-backup'
+    );
+}
 
 /**
  * Plugin activation.

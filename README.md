@@ -29,7 +29,8 @@ wp plugin install https://github.com/builtmighty/builtmighty-site-backup/release
 - **Codespace integration** — REST API endpoint and bootstrap key for the pipeline
 - **Devcontainer management** — check and update .devcontainer config via GitHub API
 - **WP-CLI support** — full command-line interface with timeout control
-- **Pressable & managed hosting compatible** — follows symlinked plugins, secure mysqldump via defaults file
+- **Automatic updates** — auto-updates from GitHub releases via built-in update checker
+- **Pressable & managed hosting compatible** — handles split ABSPATH/WP_CONTENT_DIR, follows symlinked plugins, secure mysqldump via defaults file
 - **Multisite compatible** — settings stored at the network level
 - **Cancel in-progress backups** — stop a running backup from the admin UI or WP-CLI
 - **Developer filters** — tune batch size, part size, concurrency, and gzip levels via `add_filter()`
@@ -144,7 +145,7 @@ Backups are executed as a chain of background steps via Action Scheduler:
 
 1. **Start** — initialize backup, create log entry
 2. **Export Database** — stream a gzipped SQL dump using primary-key pagination (binary columns exported as hex)
-3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, streaming PHP fallback); symlinked plugins are dereferenced and included
+3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, streaming PHP fallback); symlinked plugins are dereferenced and included. On hosts where `WP_CONTENT_DIR` is outside `ABSPATH` (e.g., Pressable), both locations are archived automatically.
 4. **Upload Database** — multipart upload to Spaces (25 MB parts, 5 concurrent)
 5. **Upload Files** — multipart upload to Spaces
 6. **Cleanup** — run retention policy, delete temp files, mark complete

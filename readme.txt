@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups, builtmighty
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.14.0
+Stable tag: 1.15.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,12 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 1.15.0 =
+* Fixed Pressable backups missing plugins and themes — ABSPATH on Pressable points to shared WordPress core (/wordpress/core/X.Y.Z/) while wp-content lives at /srv/htdocs/wp-content; archiver now detects when WP_CONTENT_DIR is outside ABSPATH and archives both locations
+* Initialized GitHub update checker — plugin now auto-updates from GitHub releases
+* Fixed backup log persisting after completion — log stream now cleared on dismiss
+* Added diagnostic logging for archive root paths (helps debug hosting-specific issues)
 
 = 1.14.0 =
 * Security: Replaced MYSQL_PWD environment variable with --defaults-extra-file for mysqldump authentication (no longer visible in /proc on shared hosting)
