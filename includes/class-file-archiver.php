@@ -23,6 +23,16 @@ class BM_Backup_File_Archiver {
         'wp-content/backup-db',
         '.git',
         'node_modules',
+
+        // Backup plugin directories.
+        'wp-content/updraft',
+        'wp-content/ai1wm-backups',
+        'wp-content/backups-dup-lite',
+        'wp-content/backups-dup-pro',
+
+        // Production drop-in files (host-specific, break dev environments).
+        'wp-content/object-cache.php',
+        'wp-content/advanced-cache.php',
     ];
 
     private BM_Backup_Settings $settings;

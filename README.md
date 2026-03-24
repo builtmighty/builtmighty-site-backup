@@ -74,6 +74,12 @@ The following paths are always excluded from file backups:
 - `wp-content/backup-db`
 - `.git`
 - `node_modules`
+- `wp-content/updraft` (UpdraftPlus)
+- `wp-content/ai1wm-backups` (All-in-One WP Migration)
+- `wp-content/backups-dup-lite` (Duplicator)
+- `wp-content/backups-dup-pro` (Duplicator Pro)
+- `wp-content/object-cache.php` (production drop-in)
+- `wp-content/advanced-cache.php` (production drop-in)
 
 ## WP-CLI Commands
 

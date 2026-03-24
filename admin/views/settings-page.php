@@ -274,7 +274,7 @@ $recent    = $logger->get_recent( 20 );
                                   name="bm_backup_settings[extra_exclusions]"
                                   rows="5" class="large-text code"><?php echo esc_textarea( $settings['extra_exclusions'] ); ?></textarea>
                         <p class="description">
-                            <?php esc_html_e( 'One pattern per line. These are added to the defaults: wp-content/uploads, wp-content/cache, .git, node_modules.', 'builtmighty-site-backup' ); ?>
+                            <?php esc_html_e( 'One pattern per line. These are added to the defaults: wp-content/uploads, wp-content/cache, .git, node_modules, backup plugin directories (updraft, ai1wm-backups, etc.), and production drop-ins (object-cache.php, advanced-cache.php).', 'builtmighty-site-backup' ); ?>
                         </p>
                     </td>
                 </tr>
