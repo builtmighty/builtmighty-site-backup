@@ -20,10 +20,10 @@ jobs:
 
       - name: Build plugin ZIP
         run: |
-          PLUGIN_DIR="builtmighty-site-backup"
+          PLUGIN_DIR="mighty-backup"
           mkdir -p "$PLUGIN_DIR"
           rsync -a --exclude="$PLUGIN_DIR" --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='.gitignore' . "$PLUGIN_DIR/"
-          zip -r builtmighty-site-backup.zip "$PLUGIN_DIR"
+          zip -r mighty-backup.zip "$PLUGIN_DIR"
 
       - name: Get latest release tag
         id: tag
@@ -37,6 +37,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload ZIP to release
-        run: gh release upload "${{ steps.tag.outputs.tag }}" builtmighty-site-backup.zip --clobber
+        run: gh release upload "${{ steps.tag.outputs.tag }}" mighty-backup.zip --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
