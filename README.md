@@ -134,6 +134,14 @@ wp mighty-backup test
 
 ## REST API
 
+### Health Check
+
+```
+GET /wp-json/mighty-backup/v1/check
+```
+
+Public endpoint (no authentication required) that confirms the REST API is reachable. Returns plugin name, version, and timestamp. Also available as a one-click "Check API Health" button on the **Codespace** settings tab.
+
 ### Codespace Config
 
 ```

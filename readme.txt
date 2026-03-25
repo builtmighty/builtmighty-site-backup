@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.0.0
+Stable tag: 2.1.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,10 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.1.0 =
+* Added public REST API health-check endpoint (GET /wp-json/mighty-backup/v1/check)
+* Added "Check API Health" button on the Codespace settings tab for one-click API reachability testing
 
 = 2.0.0 =
 * Renamed plugin from "BuiltMighty Site Backup" to "Mighty Backup"
