@@ -19,7 +19,7 @@ $recent    = $logger->get_recent( 20 );
 ?>
 
 <div class="wrap mb-backup-wrap">
-    <h1><?php esc_html_e( 'Mighty Backup', 'mighty-backup' ); ?></h1>
+    <h1><?php esc_html_e( 'MightyBackup', 'mighty-backup' ); ?></h1>
 
     <?php if ( Mighty_Backup_Dev_Mode::is_dev_mode() ) : ?>
         <div class="notice notice-warning inline" style="margin-top:10px;">

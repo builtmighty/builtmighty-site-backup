@@ -49,24 +49,16 @@ class Mighty_Backup_Settings {
         if ( ! $this->is_authorized_user() ) {
             return;
         }
-        if ( is_multisite() ) {
-            add_submenu_page(
-                'settings.php',
-                __( 'Mighty Backup', 'mighty-backup' ),
-                __( 'Mighty Backup', 'mighty-backup' ),
-                'manage_network_options',
-                'mighty-backup',
-                [ $this, 'render_page' ]
-            );
-        } else {
-            add_options_page(
-                __( 'Mighty Backup', 'mighty-backup' ),
-                __( 'Mighty Backup', 'mighty-backup' ),
-                'manage_options',
-                'mighty-backup',
-                [ $this, 'render_page' ]
-            );
-        }
+        $capability = is_multisite() ? 'manage_network_options' : 'manage_options';
+        \add_menu_page(
+            __( 'MightyBackup', 'mighty-backup' ),
+            __( 'MightyBackup', 'mighty-backup' ),
+            $capability,
+            'mighty-backup',
+            [ $this, 'render_page' ],
+            'dashicons-cloud-saved',
+            80
+        );
     }
 
     /**
@@ -85,7 +77,7 @@ class Mighty_Backup_Settings {
      * Enqueue admin assets on our settings page only.
      */
     public function enqueue_assets( string $hook ): void {
-        if ( 'settings_page_mighty-backup' !== $hook ) {
+        if ( 'toplevel_page_mighty-backup' !== $hook ) {
             return;
         }
         wp_enqueue_style(
