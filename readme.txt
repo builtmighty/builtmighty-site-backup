@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 1.16.0
+Stable tag: 2.0.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,14 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.0.0 =
+* Renamed plugin from "BuiltMighty Site Backup" to "Mighty Backup"
+* Renamed all classes, functions, constants, hooks, filters, and slugs to use the new `Mighty_Backup` / `mighty_backup` naming convention
+* Updated WP-CLI command from `bm-backup` to `mighty-backup`
+* Updated REST API namespace from `bm-backup/v1` to `mighty-backup/v1`
+* Existing database options and table names are preserved — no data migration needed
+* Encryption constant `MIGHTY_BACKUP_SECRET` replaces `BM_BACKUP_SECRET` (old constant still accepted for backwards compatibility)
 
 = 1.16.0 =
 * Excluded backup plugin directories from file backups (UpdraftPlus, All-in-One WP Migration, Duplicator)

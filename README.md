@@ -42,7 +42,7 @@ wp plugin install https://github.com/builtmighty/builtmighty-site-backup/release
 1. Upload the plugin to `wp-content/plugins/mighty-backup`.
 2. Run `composer install` from the plugin directory.
 3. Activate the plugin in WordPress (or Network Activate on multisite).
-4. Go to **Settings > Site Backup** and configure your DigitalOcean Spaces credentials.
+4. Go to **Settings > Mighty Backup** and configure your DigitalOcean Spaces credentials.
 
 ## Configuration
 
