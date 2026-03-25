@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for BM_Backup_Manager — state management and cancellation.
+ * Tests for Mighty_Backup_Manager — state management and cancellation.
  */
 
 use Brain\Monkey;
@@ -28,7 +28,7 @@ class BackupManagerTest extends TestCase {
     }
 
     public function test_cancel_returns_false_when_no_backup_running(): void {
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertFalse( $manager->cancel() );
     }
 
@@ -37,7 +37,7 @@ class BackupManagerTest extends TestCase {
             'status' => 'completed',
         ] );
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertFalse( $manager->cancel() );
     }
 
@@ -46,7 +46,7 @@ class BackupManagerTest extends TestCase {
             'status' => 'failed',
         ] );
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertFalse( $manager->cancel() );
     }
 
@@ -58,7 +58,7 @@ class BackupManagerTest extends TestCase {
             'files_local_path' => null,
         ] );
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertTrue( $manager->cancel() );
     }
 
@@ -70,12 +70,12 @@ class BackupManagerTest extends TestCase {
             'files_local_path' => null,
         ] );
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertTrue( $manager->cancel() );
     }
 
     public function test_get_status_returns_idle_when_no_state(): void {
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $status  = $manager->get_status();
 
         $this->assertFalse( $status['active'] );
@@ -97,7 +97,7 @@ class BackupManagerTest extends TestCase {
             'started_at'   => '2026-01-01 03:00:00',
         ] );
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $status  = $manager->get_status();
 
         $this->assertTrue( $status['active'] );
@@ -107,30 +107,30 @@ class BackupManagerTest extends TestCase {
     }
 
     public function test_is_running_returns_false_when_no_state(): void {
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertFalse( $manager->is_running() );
     }
 
     public function test_is_running_returns_false_for_completed_state(): void {
         Functions\when( 'get_site_option' )->justReturn( [ 'status' => 'completed' ] );
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertFalse( $manager->is_running() );
     }
 
     public function test_is_running_returns_true_when_running(): void {
         Functions\when( 'get_site_option' )->justReturn( [ 'status' => 'running' ] );
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertTrue( $manager->is_running() );
     }
 
     public function test_get_state_returns_null_when_no_option(): void {
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $this->assertNull( $manager->get_state() );
     }
 
     public function test_clear_state_does_not_throw(): void {
         // clear_state() calls delete_site_option — confirm it completes without error.
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $manager->clear_state();
         $this->assertTrue( true ); // Reached without exception.
     }

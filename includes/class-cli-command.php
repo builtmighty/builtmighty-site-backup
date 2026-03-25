@@ -1,22 +1,22 @@
 <?php
 /**
- * WP-CLI commands for BM Site Backup.
+ * WP-CLI commands for Mighty Backup.
  *
  * Usage:
- *   wp bm-backup run [--type=<type>] [--async]
- *   wp bm-backup status
- *   wp bm-backup cancel
- *   wp bm-backup list [--type=<type>]
- *   wp bm-backup prune
- *   wp bm-backup test
- *   wp bm-backup dev-mode [--disable]
+ *   wp mighty-backup run [--type=<type>] [--async]
+ *   wp mighty-backup status
+ *   wp mighty-backup cancel
+ *   wp mighty-backup list [--type=<type>]
+ *   wp mighty-backup prune
+ *   wp mighty-backup test
+ *   wp mighty-backup dev-mode [--disable]
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_CLI_Command {
+class Mighty_Backup_CLI_Command {
 
     /**
      * Run a backup.
@@ -44,10 +44,10 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup run
-     *     wp bm-backup run --type=db
-     *     wp bm-backup run --async
-     *     wp bm-backup run --timeout=3600
+     *     wp mighty-backup run
+     *     wp mighty-backup run --type=db
+     *     wp mighty-backup run --async
+     *     wp mighty-backup run --timeout=3600
      *
      * @param array $args       Positional arguments.
      * @param array $assoc_args Named arguments.
@@ -58,12 +58,12 @@ class BM_Backup_CLI_Command {
         $timeout = (int) ( $assoc_args['timeout'] ?? 21600 );
 
         try {
-            $manager = new BM_Backup_Manager();
+            $manager = new Mighty_Backup_Manager();
             $manager->schedule( $type, 'cli' );
             WP_CLI::log( "Backup scheduled ({$type})." );
 
             if ( $async ) {
-                WP_CLI::success( 'Backup is running in the background. Use "wp bm-backup status" to check progress.' );
+                WP_CLI::success( 'Backup is running in the background. Use "wp mighty-backup status" to check progress.' );
                 return;
             }
 
@@ -122,12 +122,12 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup status
+     *     wp mighty-backup status
      */
     public function status( $args, $assoc_args ) {
-        $manager   = new BM_Backup_Manager();
-        $logger    = new BM_Backup_Logger();
-        $scheduler = new BM_Backup_Scheduler();
+        $manager   = new Mighty_Backup_Manager();
+        $logger    = new Mighty_Backup_Logger();
+        $scheduler = new Mighty_Backup_Scheduler();
 
         // Current backup status.
         $status = $manager->get_status();
@@ -157,16 +157,16 @@ class BM_Backup_CLI_Command {
         }
 
         // Dev mode.
-        if ( BM_Backup_Dev_Mode::is_dev_mode() ) {
+        if ( Mighty_Backup_Dev_Mode::is_dev_mode() ) {
             WP_CLI::warning( 'Dev mode is active — scheduled backups are paused (site URL mismatch).' );
-            WP_CLI::log( sprintf( '  Live URL:    %s', BM_Backup_Dev_Mode::get_live_url() ) );
+            WP_CLI::log( sprintf( '  Live URL:    %s', Mighty_Backup_Dev_Mode::get_live_url() ) );
             WP_CLI::log( sprintf( '  Current URL: %s', network_site_url() ) );
         }
 
         // Next scheduled run.
         $next = $scheduler->get_next_run();
         if ( $next ) {
-            $suffix = BM_Backup_Dev_Mode::is_dev_mode() ? ' (paused — dev mode)' : '';
+            $suffix = Mighty_Backup_Dev_Mode::is_dev_mode() ? ' (paused — dev mode)' : '';
             WP_CLI::log( sprintf( "\nNext scheduled: %s UTC%s", gmdate( 'Y-m-d H:i:s', $next ), $suffix ) );
         } else {
             WP_CLI::log( "\nNo backup scheduled." );
@@ -181,10 +181,10 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup cancel
+     *     wp mighty-backup cancel
      */
     public function cancel( $args, $assoc_args ) {
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
 
         if ( ! $manager->get_state() ) {
             WP_CLI::warning( 'No backup is currently running or pending.' );
@@ -217,15 +217,15 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup list
-     *     wp bm-backup list --type=db
+     *     wp mighty-backup list
+     *     wp mighty-backup list --type=db
      */
     public function list( $args, $assoc_args ) {
         $type = $assoc_args['type'] ?? 'all';
 
         try {
-            $settings = new BM_Backup_Settings();
-            $client   = new BM_Backup_Spaces_Client( $settings );
+            $settings = new Mighty_Backup_Settings();
+            $client   = new Mighty_Backup_Spaces_Client( $settings );
 
             $prefixes = [];
             if ( in_array( $type, [ 'all', 'db' ], true ) ) {
@@ -265,14 +265,14 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup prune
+     *     wp mighty-backup prune
      */
     public function prune( $args, $assoc_args ) {
         try {
-            $settings        = new BM_Backup_Settings();
-            $client          = new BM_Backup_Spaces_Client( $settings );
+            $settings        = new Mighty_Backup_Settings();
+            $client          = new Mighty_Backup_Spaces_Client( $settings );
             $retention_count = (int) $settings->get( 'retention_count', 7 );
-            $retention       = new BM_Backup_Retention_Manager( $client, $retention_count );
+            $retention       = new Mighty_Backup_Retention_Manager( $client, $retention_count );
 
             WP_CLI::log( sprintf( 'Running retention cleanup (keeping last %d backups)...', $retention_count ) );
 
@@ -294,17 +294,17 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup test
+     *     wp mighty-backup test
      */
     public function test( $args, $assoc_args ) {
         try {
-            $settings = new BM_Backup_Settings();
+            $settings = new Mighty_Backup_Settings();
 
             if ( ! $settings->is_configured() ) {
                 WP_CLI::error( 'Plugin is not configured. Please enter your DO Spaces credentials in wp-admin.' );
             }
 
-            $client  = new BM_Backup_Spaces_Client( $settings );
+            $client  = new Mighty_Backup_Spaces_Client( $settings );
             $message = $client->test_connection();
 
             WP_CLI::success( $message );
@@ -329,15 +329,15 @@ class BM_Backup_CLI_Command {
      *
      * ## EXAMPLES
      *
-     *     wp bm-backup dev-mode
-     *     wp bm-backup dev-mode --disable
+     *     wp mighty-backup dev-mode
+     *     wp mighty-backup dev-mode --disable
      *
      * @subcommand dev-mode
      */
     public function dev_mode( $args, $assoc_args ) {
-        $live_url    = BM_Backup_Dev_Mode::get_live_url();
+        $live_url    = Mighty_Backup_Dev_Mode::get_live_url();
         $current_url = network_site_url();
-        $is_dev      = BM_Backup_Dev_Mode::is_dev_mode();
+        $is_dev      = Mighty_Backup_Dev_Mode::is_dev_mode();
 
         if ( isset( $assoc_args['disable'] ) ) {
             if ( ! $is_dev ) {
@@ -345,9 +345,9 @@ class BM_Backup_CLI_Command {
                 return;
             }
 
-            update_site_option( BM_Backup_Dev_Mode::LIVE_URL_OPTION, $current_url );
+            update_site_option( Mighty_Backup_Dev_Mode::LIVE_URL_OPTION, $current_url );
 
-            $scheduler = new BM_Backup_Scheduler();
+            $scheduler = new Mighty_Backup_Scheduler();
             $scheduler->reschedule();
 
             WP_CLI::success( 'Dev mode disabled. Automatic backups re-enabled.' );
@@ -360,7 +360,7 @@ class BM_Backup_CLI_Command {
         WP_CLI::log( sprintf( 'Current URL: %s', $current_url ) );
 
         if ( $is_dev ) {
-            WP_CLI::warning( 'Scheduled backups are paused. Run "wp bm-backup dev-mode --disable" to re-enable.' );
+            WP_CLI::warning( 'Scheduled backups are paused. Run "wp mighty-backup dev-mode --disable" to re-enable.' );
         }
     }
 }

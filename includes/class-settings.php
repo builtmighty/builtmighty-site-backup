@@ -7,7 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_Settings {
+class Mighty_Backup_Settings {
 
     const OPTION_KEY = 'bm_backup_settings';
 
@@ -15,7 +15,7 @@ class BM_Backup_Settings {
      * Check whether the current user is authorized to manage plugin settings.
      */
     private function is_authorized_user(): bool {
-        return bm_backup_is_authorized_user();
+        return mighty_backup_is_authorized_user();
     }
 
     /**
@@ -28,17 +28,17 @@ class BM_Backup_Settings {
             add_action( 'admin_menu', [ $this, 'add_menu_page' ] );
         }
         add_action( 'admin_init', [ $this, 'register_settings' ] );
-        add_action( 'wp_ajax_bm_backup_test_connection', [ $this, 'ajax_test_connection' ] );
-        add_action( 'wp_ajax_bm_backup_run_now', [ $this, 'ajax_run_now' ] );
-        add_action( 'wp_ajax_bm_backup_check_status', [ $this, 'ajax_check_status' ] );
-        add_action( 'wp_ajax_bm_backup_dismiss_status', [ $this, 'ajax_dismiss_status' ] );
-        add_action( 'wp_ajax_bm_backup_cancel', [ $this, 'ajax_cancel' ] );
-        add_action( 'wp_ajax_bm_backup_generate_api_key', [ $this, 'ajax_generate_api_key' ] );
-        add_action( 'wp_ajax_bm_backup_download', [ $this, 'ajax_download' ] );
+        add_action( 'wp_ajax_mighty_backup_test_connection', [ $this, 'ajax_test_connection' ] );
+        add_action( 'wp_ajax_mighty_backup_run_now', [ $this, 'ajax_run_now' ] );
+        add_action( 'wp_ajax_mighty_backup_check_status', [ $this, 'ajax_check_status' ] );
+        add_action( 'wp_ajax_mighty_backup_dismiss_status', [ $this, 'ajax_dismiss_status' ] );
+        add_action( 'wp_ajax_mighty_backup_cancel', [ $this, 'ajax_cancel' ] );
+        add_action( 'wp_ajax_mighty_backup_generate_api_key', [ $this, 'ajax_generate_api_key' ] );
+        add_action( 'wp_ajax_mighty_backup_download', [ $this, 'ajax_download' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 
         if ( is_multisite() ) {
-            add_action( 'network_admin_edit_bm_backup_save', [ $this, 'save_network_settings' ] );
+            add_action( 'network_admin_edit_mighty_backup_save', [ $this, 'save_network_settings' ] );
         }
     }
 
@@ -52,18 +52,18 @@ class BM_Backup_Settings {
         if ( is_multisite() ) {
             add_submenu_page(
                 'settings.php',
-                __( 'BM Site Backup', 'builtmighty-site-backup' ),
-                __( 'BM Site Backup', 'builtmighty-site-backup' ),
+                __( 'Mighty Backup', 'mighty-backup' ),
+                __( 'Mighty Backup', 'mighty-backup' ),
                 'manage_network_options',
-                'bm-site-backup',
+                'mighty-backup',
                 [ $this, 'render_page' ]
             );
         } else {
             add_options_page(
-                __( 'BM Site Backup', 'builtmighty-site-backup' ),
-                __( 'BM Site Backup', 'builtmighty-site-backup' ),
+                __( 'Mighty Backup', 'mighty-backup' ),
+                __( 'Mighty Backup', 'mighty-backup' ),
                 'manage_options',
-                'bm-site-backup',
+                'mighty-backup',
                 [ $this, 'render_page' ]
             );
         }
@@ -76,7 +76,7 @@ class BM_Backup_Settings {
         if ( is_multisite() ) {
             return; // On multisite, settings are saved via save_network_settings().
         }
-        register_setting( 'bm_backup_settings_group', self::OPTION_KEY, [
+        register_setting( 'mighty_backup_settings_group', self::OPTION_KEY, [
             'sanitize_callback' => [ $this, 'sanitize_settings' ],
         ] );
     }
@@ -85,25 +85,25 @@ class BM_Backup_Settings {
      * Enqueue admin assets on our settings page only.
      */
     public function enqueue_assets( string $hook ): void {
-        if ( 'settings_page_bm-site-backup' !== $hook ) {
+        if ( 'settings_page_mighty-backup' !== $hook ) {
             return;
         }
         wp_enqueue_style(
-            'bm-backup-admin',
-            BM_BACKUP_URL . 'admin/assets/admin.css',
+            'mighty-backup-admin',
+            MIGHTY_BACKUP_URL . 'admin/assets/admin.css',
             [],
-            BM_BACKUP_VERSION
+            MIGHTY_BACKUP_VERSION
         );
         wp_enqueue_script(
-            'bm-backup-admin',
-            BM_BACKUP_URL . 'admin/assets/admin.js',
+            'mighty-backup-admin',
+            MIGHTY_BACKUP_URL . 'admin/assets/admin.js',
             [ 'jquery' ],
-            BM_BACKUP_VERSION,
+            MIGHTY_BACKUP_VERSION,
             true
         );
-        wp_localize_script( 'bm-backup-admin', 'bmBackup', [
+        wp_localize_script( 'mighty-backup-admin', 'mightyBackup', [
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-            'nonce'   => wp_create_nonce( 'bm_backup_nonce' ),
+            'nonce'   => wp_create_nonce( 'mighty_backup_nonce' ),
         ] );
     }
 
@@ -112,29 +112,29 @@ class BM_Backup_Settings {
      */
     public function render_page(): void {
         if ( ! $this->is_authorized_user() ) {
-            wp_die( __( 'You do not have permission to access this page.', 'builtmighty-site-backup' ) );
+            wp_die( __( 'You do not have permission to access this page.', 'mighty-backup' ) );
         }
         if ( is_multisite() ) {
-            $action = network_admin_url( 'edit.php?action=bm_backup_save' );
+            $action = network_admin_url( 'edit.php?action=mighty_backup_save' );
         } else {
             $action = 'options.php';
         }
         $settings = $this->get_all();
-        include BM_BACKUP_DIR . 'admin/views/settings-page.php';
+        include MIGHTY_BACKUP_DIR . 'admin/views/settings-page.php';
     }
 
     /**
      * Save settings on multisite network admin.
      */
     public function save_network_settings(): void {
-        check_admin_referer( 'bm_backup_settings_group-options' );
+        check_admin_referer( 'mighty_backup_settings_group-options' );
 
         if ( ! current_user_can( 'manage_network_options' ) ) {
-            wp_die( __( 'Unauthorized', 'builtmighty-site-backup' ) );
+            wp_die( __( 'Unauthorized', 'mighty-backup' ) );
         }
 
         if ( ! $this->is_authorized_user() ) {
-            wp_die( __( 'Unauthorized', 'builtmighty-site-backup' ) );
+            wp_die( __( 'Unauthorized', 'mighty-backup' ) );
         }
 
         $input = $_POST[ self::OPTION_KEY ] ?? [];
@@ -143,7 +143,7 @@ class BM_Backup_Settings {
             $sanitized = $this->sanitize_settings( $input );
         } catch ( \RuntimeException $e ) {
             wp_safe_redirect( add_query_arg( [
-                'page'  => 'bm-site-backup',
+                'page'  => 'mighty-backup',
                 'error' => urlencode( $e->getMessage() ),
             ], network_admin_url( 'settings.php' ) ) );
             exit;
@@ -152,7 +152,7 @@ class BM_Backup_Settings {
         $this->save_all( $sanitized );
 
         wp_safe_redirect( add_query_arg( [
-            'page'    => 'bm-site-backup',
+            'page'    => 'mighty-backup',
             'updated' => 'true',
         ], network_admin_url( 'settings.php' ) ) );
         exit;
@@ -345,7 +345,7 @@ class BM_Backup_Settings {
      * AJAX: Test DO Spaces connection.
      */
     public function ajax_test_connection(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -355,7 +355,7 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        if ( ! bm_backup_has_sdk() ) {
+        if ( ! mighty_backup_has_sdk() ) {
             wp_send_json_error(
                 'AWS SDK not found. Please run "composer install" in the plugin directory or use a pre-built release.'
             );
@@ -366,7 +366,7 @@ class BM_Backup_Settings {
         }
 
         try {
-            $client = new BM_Backup_Spaces_Client( $this );
+            $client = new Mighty_Backup_Spaces_Client( $this );
             $result = $client->test_connection();
             wp_send_json_success( $result );
         } catch ( \Exception $e ) {
@@ -378,7 +378,7 @@ class BM_Backup_Settings {
      * AJAX: Run backup now — schedules the action chain and returns immediately.
      */
     public function ajax_run_now(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -388,13 +388,13 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        if ( ! bm_backup_has_sdk() ) {
+        if ( ! mighty_backup_has_sdk() ) {
             wp_send_json_error(
                 'AWS SDK not found. Please run "composer install" in the plugin directory or use a pre-built release.'
             );
         }
 
-        if ( ! bm_backup_has_action_scheduler() ) {
+        if ( ! mighty_backup_has_action_scheduler() ) {
             wp_send_json_error( 'Action Scheduler not available. Run "composer install" in the plugin directory.' );
         }
 
@@ -403,7 +403,7 @@ class BM_Backup_Settings {
         }
 
         try {
-            $manager = new BM_Backup_Manager();
+            $manager = new Mighty_Backup_Manager();
             $manager->schedule( 'full', 'manual' );
             wp_send_json_success( [
                 'message' => 'Backup scheduled. It will begin processing in the background.',
@@ -417,7 +417,7 @@ class BM_Backup_Settings {
      * AJAX: Check backup status — polled by the admin JS.
      */
     public function ajax_check_status(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -427,7 +427,7 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $manager   = new BM_Backup_Manager();
+        $manager   = new Mighty_Backup_Manager();
         $log_since = isset( $_POST['since'] ) ? absint( $_POST['since'] ) : 0;
         wp_send_json_success( $manager->get_status( $log_since ) );
     }
@@ -436,7 +436,7 @@ class BM_Backup_Settings {
      * AJAX: Dismiss/clear the backup status after completion or failure.
      */
     public function ajax_dismiss_status(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -446,9 +446,9 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         $manager->clear_state();
-        BM_Backup_Log_Stream::clear();
+        Mighty_Backup_Log_Stream::clear();
         wp_send_json_success();
     }
 
@@ -456,7 +456,7 @@ class BM_Backup_Settings {
      * AJAX: Cancel a running or pending backup.
      */
     public function ajax_cancel(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -466,7 +466,7 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $manager = new BM_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
         if ( $manager->cancel() ) {
             wp_send_json_success( [ 'message' => 'Backup cancelled.' ] );
         } else {
@@ -478,7 +478,7 @@ class BM_Backup_Settings {
      * AJAX: Generate (or regenerate) the Codespace API key.
      */
     public function ajax_generate_api_key(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -488,8 +488,8 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $key           = BM_Backup_Api_Endpoint::generate_key();
-        $bootstrap_key = BM_Backup_Api_Endpoint::get_bootstrap_key();
+        $key           = Mighty_Backup_Api_Endpoint::generate_key();
+        $bootstrap_key = Mighty_Backup_Api_Endpoint::get_bootstrap_key();
 
         wp_send_json_success( [
             'bootstrap_key' => $bootstrap_key,
@@ -500,7 +500,7 @@ class BM_Backup_Settings {
      * AJAX: Generate a temporary pre-signed download URL for a backup file.
      */
     public function ajax_download(): void {
-        check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+        check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
         if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized' );
@@ -510,7 +510,7 @@ class BM_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        if ( ! bm_backup_has_sdk() ) {
+        if ( ! mighty_backup_has_sdk() ) {
             wp_send_json_error( 'AWS SDK not available.' );
         }
 
@@ -529,7 +529,7 @@ class BM_Backup_Settings {
         }
 
         try {
-            $client = new BM_Backup_Spaces_Client( $this );
+            $client = new Mighty_Backup_Spaces_Client( $this );
             $url    = $client->get_presigned_url( $key );
             wp_send_json_success( [ 'url' => $url ] );
         } catch ( \Exception $e ) {
@@ -538,10 +538,10 @@ class BM_Backup_Settings {
     }
 
     /**
-     * Encrypt a string using AES-256-CBC with wp_salt + optional BM_BACKUP_SECRET pepper.
+     * Encrypt a string using AES-256-CBC with wp_salt + optional MIGHTY_BACKUP_SECRET pepper.
      */
     private function encrypt( string $plaintext ): string {
-        $pepper = defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '';
+        $pepper = defined( 'MIGHTY_BACKUP_SECRET' ) ? MIGHTY_BACKUP_SECRET : ( defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '' );
         $key    = hash( 'sha256', wp_salt( 'auth' ) . $pepper, true );
         $iv = random_bytes( 16 );
         $cipher = openssl_encrypt( $plaintext, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
@@ -555,7 +555,7 @@ class BM_Backup_Settings {
      * Decrypt a string encrypted with encrypt().
      */
     private function decrypt( string $encoded ): string {
-        $pepper = defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '';
+        $pepper = defined( 'MIGHTY_BACKUP_SECRET' ) ? MIGHTY_BACKUP_SECRET : ( defined( 'BM_BACKUP_SECRET' ) ? BM_BACKUP_SECRET : '' );
         $key    = hash( 'sha256', wp_salt( 'auth' ) . $pepper, true );
         $data   = base64_decode( $encoded );
         if ( strlen( $data ) < 17 ) {

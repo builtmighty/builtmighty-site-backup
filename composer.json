@@ -1,5 +1,5 @@
 {
-    "name": "builtmighty/site-backup",
+    "name": "builtmighty/mighty-backup",
     "description": "WordPress plugin for automated site backups to DigitalOcean Spaces",
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",

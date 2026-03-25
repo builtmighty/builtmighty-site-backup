@@ -1,7 +1,7 @@
-=== Built Mighty Site Backup ===
+=== Mighty Backup ===
 Contributors: tylerjohnsondesign
 Donate link: https://builtmighty.com
-Tags: digital ocean, spaces, backups, builtmighty
+Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
 Stable tag: 1.16.0
@@ -48,7 +48,7 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 * Fixed stderr redirection in mysqldump — errors no longer silently corrupt SQL dumps
 * Added tar safety checks — files > 8 GB or paths > 255 chars are skipped with log warning
 * Added --timeout flag to WP-CLI run command (default 6 hours)
-* Extracted shared bm_backup_is_authorized_user() to eliminate code duplication
+* Extracted shared mighty_backup_is_authorized_user() to eliminate code duplication
 * Fixed symlink following in file archiver — prevents infinite loops from circular symlinks
 * Fixed gzip concatenation in streamlined hybrid export — single gzip stream for compatibility
 * Freed large temporary arrays in postmeta streamlined export
@@ -104,7 +104,7 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 * Added action hooks before/after each backup pipeline step and on completion/failure
 * Restricted settings page access to authorized email domains (builtmighty.com)
 * Credential fields are now write-only — values never rendered to page source
-* Optional BM_BACKUP_SECRET constant in wp-config.php adds extra encryption pepper
+* Optional MIGHTY_BACKUP_SECRET constant in wp-config.php adds extra encryption pepper
 * Added PHPUnit test suite (30 tests covering settings, backup manager, retention, and logger)
 * Improved admin accessibility (aria-live, role=progressbar, aria-valuenow)
 

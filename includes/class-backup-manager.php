@@ -3,12 +3,12 @@
  * Backup manager — orchestrates backup via Action Scheduler action chain.
  *
  * Flow:
- *   bm_backup_step_start        -> creates log, initializes state
- *   bm_backup_step_export_db    -> exports DB to temp .sql.gz
- *   bm_backup_step_archive_files -> creates tar.gz of file system
- *   bm_backup_step_upload_db    -> multipart upload DB to Spaces
- *   bm_backup_step_upload_files -> multipart upload files to Spaces
- *   bm_backup_step_cleanup      -> retention prune, delete temps, mark complete
+ *   mighty_backup_step_start        -> creates log, initializes state
+ *   mighty_backup_step_export_db    -> exports DB to temp .sql.gz
+ *   mighty_backup_step_archive_files -> creates tar.gz of file system
+ *   mighty_backup_step_upload_db    -> multipart upload DB to Spaces
+ *   mighty_backup_step_upload_files -> multipart upload files to Spaces
+ *   mighty_backup_step_cleanup      -> retention prune, delete temps, mark complete
  *
  * State is persisted in a site option between actions.
  */
@@ -17,10 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_Manager {
+class Mighty_Backup_Manager {
 
     private const STATE_OPTION = 'bm_backup_current_state';
-    private const ACTION_GROUP = 'bm-site-backup';
+    private const ACTION_GROUP = 'mighty-backup';
 
     /**
      * All steps in order. Steps are skipped based on backup type.
@@ -50,12 +50,12 @@ class BM_Backup_Manager {
      * Register Action Scheduler hooks.
      */
     public function init(): void {
-        add_action( 'bm_backup_step_start', [ $this, 'step_start' ] );
-        add_action( 'bm_backup_step_export_db', [ $this, 'step_export_db' ] );
-        add_action( 'bm_backup_step_archive_files', [ $this, 'step_archive_files' ] );
-        add_action( 'bm_backup_step_upload_db', [ $this, 'step_upload_db' ] );
-        add_action( 'bm_backup_step_upload_files', [ $this, 'step_upload_files' ] );
-        add_action( 'bm_backup_step_cleanup', [ $this, 'step_cleanup' ] );
+        add_action( 'mighty_backup_step_start', [ $this, 'step_start' ] );
+        add_action( 'mighty_backup_step_export_db', [ $this, 'step_export_db' ] );
+        add_action( 'mighty_backup_step_archive_files', [ $this, 'step_archive_files' ] );
+        add_action( 'mighty_backup_step_upload_db', [ $this, 'step_upload_db' ] );
+        add_action( 'mighty_backup_step_upload_files', [ $this, 'step_upload_files' ] );
+        add_action( 'mighty_backup_step_cleanup', [ $this, 'step_cleanup' ] );
     }
 
     /**
@@ -67,15 +67,15 @@ class BM_Backup_Manager {
      * @throws \Exception If a backup is already running or deps are missing.
      */
     public function schedule( string $type = 'full', string $trigger = 'scheduled' ): array {
-        if ( ! bm_backup_has_sdk() ) {
+        if ( ! mighty_backup_has_sdk() ) {
             throw new \Exception( 'AWS SDK not installed. Run "composer install" in the plugin directory.' );
         }
 
-        if ( ! bm_backup_has_action_scheduler() ) {
+        if ( ! mighty_backup_has_action_scheduler() ) {
             throw new \Exception( 'Action Scheduler not available.' );
         }
 
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         if ( ! $settings->is_configured() ) {
             throw new \Exception( 'Plugin not configured. Please save your DO Spaces credentials.' );
         }
@@ -118,7 +118,7 @@ class BM_Backup_Manager {
         $this->save_state( $state );
 
         // Schedule the first step to run immediately.
-        as_schedule_single_action( time(), 'bm_backup_step_start', [], self::ACTION_GROUP );
+        as_schedule_single_action( time(), 'mighty_backup_step_start', [], self::ACTION_GROUP );
 
         return $state;
     }
@@ -134,19 +134,19 @@ class BM_Backup_Manager {
 
         $this->set_time_limit();
 
-        do_action( 'bm_backup_before_start', $state );
+        do_action( 'mighty_backup_before_start', $state );
 
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $log_id = $logger->start( $state['type'], $state['trigger'] );
 
         $state['log_id'] = $log_id;
         $state['status'] = 'running';
         $this->save_state( $state );
 
-        BM_Backup_Log_Stream::start();
-        BM_Backup_Log_Stream::add( 'Backup started (' . $state['type'] . ' / ' . $state['trigger'] . ')' );
+        Mighty_Backup_Log_Stream::start();
+        Mighty_Backup_Log_Stream::add( 'Backup started (' . $state['type'] . ' / ' . $state['trigger'] . ')' );
 
-        do_action( 'bm_backup_after_start', $state );
+        do_action( 'mighty_backup_after_start', $state );
 
         $this->advance( $state );
     }
@@ -163,23 +163,23 @@ class BM_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'export_db' );
 
-        do_action( 'bm_backup_before_export_db', $state );
+        do_action( 'mighty_backup_before_export_db', $state );
 
         try {
-            $settings    = new BM_Backup_Settings();
+            $settings    = new Mighty_Backup_Settings();
             $streamlined = (bool) $settings->get( 'streamlined_mode', false );
 
-            BM_Backup_Log_Stream::add( 'Exporting database' . ( $streamlined ? ' (streamlined mode)' : '' ) . '...' );
+            Mighty_Backup_Log_Stream::add( 'Exporting database' . ( $streamlined ? ' (streamlined mode)' : '' ) . '...' );
 
-            $exporter    = new BM_Backup_Database_Exporter( $streamlined );
+            $exporter    = new Mighty_Backup_Database_Exporter( $streamlined );
             $size        = $exporter->export( $state['db_local_path'] );
 
             $state['db_file_size'] = $size;
             $this->save_state( $state );
 
-            BM_Backup_Log_Stream::add( 'Database export complete (' . size_format( $size ) . ')' );
+            Mighty_Backup_Log_Stream::add( 'Database export complete (' . size_format( $size ) . ')' );
 
-            do_action( 'bm_backup_after_export_db', $state, $state['db_local_path'] );
+            do_action( 'mighty_backup_after_export_db', $state, $state['db_local_path'] );
 
             $this->advance( $state );
 
@@ -200,21 +200,21 @@ class BM_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'archive_files' );
 
-        do_action( 'bm_backup_before_archive_files', $state );
+        do_action( 'mighty_backup_before_archive_files', $state );
 
         try {
-            BM_Backup_Log_Stream::add( 'Archiving files...' );
+            Mighty_Backup_Log_Stream::add( 'Archiving files...' );
 
-            $settings = new BM_Backup_Settings();
-            $archiver = new BM_Backup_File_Archiver( $settings );
+            $settings = new Mighty_Backup_Settings();
+            $archiver = new Mighty_Backup_File_Archiver( $settings );
             $size     = $archiver->archive( $state['files_local_path'] );
 
             $state['files_file_size'] = $size;
             $this->save_state( $state );
 
-            BM_Backup_Log_Stream::add( 'File archive complete (' . size_format( $size ) . ')' );
+            Mighty_Backup_Log_Stream::add( 'File archive complete (' . size_format( $size ) . ')' );
 
-            do_action( 'bm_backup_after_archive_files', $state, $state['files_local_path'] );
+            do_action( 'mighty_backup_after_archive_files', $state, $state['files_local_path'] );
 
             $this->advance( $state );
 
@@ -235,14 +235,14 @@ class BM_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'upload_db' );
 
-        do_action( 'bm_backup_before_upload', $state, 'db' );
+        do_action( 'mighty_backup_before_upload', $state, 'db' );
 
         try {
             $db_size_str = $state['db_file_size'] ? size_format( $state['db_file_size'] ) : 'unknown size';
-            BM_Backup_Log_Stream::add( 'Uploading database (' . $db_size_str . ')...' );
+            Mighty_Backup_Log_Stream::add( 'Uploading database (' . $db_size_str . ')...' );
 
-            $settings = new BM_Backup_Settings();
-            $client   = new BM_Backup_Spaces_Client( $settings );
+            $settings = new Mighty_Backup_Settings();
+            $client   = new Mighty_Backup_Spaces_Client( $settings );
 
             $remote_key = $client->upload(
                 $state['db_local_path'],
@@ -252,9 +252,9 @@ class BM_Backup_Manager {
             $state['db_remote_key'] = $remote_key;
             $this->save_state( $state );
 
-            BM_Backup_Log_Stream::add( 'Database uploaded to Spaces' );
+            Mighty_Backup_Log_Stream::add( 'Database uploaded to Spaces' );
 
-            do_action( 'bm_backup_after_upload', $state, 'db', $remote_key );
+            do_action( 'mighty_backup_after_upload', $state, 'db', $remote_key );
 
             $this->advance( $state );
 
@@ -275,14 +275,14 @@ class BM_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'upload_files' );
 
-        do_action( 'bm_backup_before_upload', $state, 'files' );
+        do_action( 'mighty_backup_before_upload', $state, 'files' );
 
         try {
             $files_size_str = $state['files_file_size'] ? size_format( $state['files_file_size'] ) : 'unknown size';
-            BM_Backup_Log_Stream::add( 'Uploading files archive (' . $files_size_str . ')...' );
+            Mighty_Backup_Log_Stream::add( 'Uploading files archive (' . $files_size_str . ')...' );
 
-            $settings = new BM_Backup_Settings();
-            $client   = new BM_Backup_Spaces_Client( $settings );
+            $settings = new Mighty_Backup_Settings();
+            $client   = new Mighty_Backup_Spaces_Client( $settings );
 
             $remote_key = $client->upload(
                 $state['files_local_path'],
@@ -292,9 +292,9 @@ class BM_Backup_Manager {
             $state['files_remote_key'] = $remote_key;
             $this->save_state( $state );
 
-            BM_Backup_Log_Stream::add( 'Files archive uploaded to Spaces' );
+            Mighty_Backup_Log_Stream::add( 'Files archive uploaded to Spaces' );
 
-            do_action( 'bm_backup_after_upload', $state, 'files', $remote_key );
+            do_action( 'mighty_backup_after_upload', $state, 'files', $remote_key );
 
             $this->advance( $state );
 
@@ -315,24 +315,24 @@ class BM_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'cleanup' );
 
-        BM_Backup_Log_Stream::add( 'Running retention cleanup...' );
+        Mighty_Backup_Log_Stream::add( 'Running retention cleanup...' );
 
         try {
             // Retention cleanup.
-            $settings        = new BM_Backup_Settings();
-            $client          = new BM_Backup_Spaces_Client( $settings );
+            $settings        = new Mighty_Backup_Settings();
+            $client          = new Mighty_Backup_Spaces_Client( $settings );
             $retention_count = (int) $settings->get( 'retention_count', 7 );
-            $retention       = new BM_Backup_Retention_Manager( $client, $retention_count );
+            $retention       = new Mighty_Backup_Retention_Manager( $client, $retention_count );
             $retention->prune();
 
         } catch ( \Exception $e ) {
             // Retention failure is non-critical — log but don't fail the backup.
-            error_log( 'BM Site Backup: Retention cleanup failed — ' . $e->getMessage() );
-            BM_Backup_Log_Stream::add( 'Retention cleanup warning: ' . $e->getMessage() );
+            error_log( 'Mighty Backup: Retention cleanup failed — ' . $e->getMessage() );
+            Mighty_Backup_Log_Stream::add( 'Retention cleanup warning: ' . $e->getMessage() );
         }
 
         // Delete temp files.
-        BM_Backup_Log_Stream::add( 'Deleting temporary files...' );
+        Mighty_Backup_Log_Stream::add( 'Deleting temporary files...' );
         foreach ( [ $state['db_local_path'], $state['files_local_path'] ] as $path ) {
             if ( $path && file_exists( $path ) ) {
                 unlink( $path );
@@ -340,7 +340,7 @@ class BM_Backup_Manager {
         }
 
         // Mark log entry as completed.
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $logger->complete( $state['log_id'], [
             'db_file_size'     => $state['db_file_size'],
             'files_file_size'  => $state['files_file_size'],
@@ -353,17 +353,17 @@ class BM_Backup_Manager {
         $state['current_step'] = null;
         $this->save_state( $state );
 
-        BM_Backup_Log_Stream::add( 'Backup complete!' );
-        BM_Backup_Log_Stream::flush();
+        Mighty_Backup_Log_Stream::add( 'Backup complete!' );
+        Mighty_Backup_Log_Stream::flush();
 
-        do_action( 'bm_backup_completed', $state );
+        do_action( 'mighty_backup_completed', $state );
     }
 
     /**
      * Advance to the next step in the chain.
      */
     private function advance( array $state ): void {
-        BM_Backup_Log_Stream::flush();
+        Mighty_Backup_Log_Stream::flush();
         $next_index = $state['step_index'] + 1;
 
         if ( $next_index >= count( $state['steps'] ) ) {
@@ -378,7 +378,7 @@ class BM_Backup_Manager {
         $this->save_state( $state );
 
         // Schedule the next step to run immediately.
-        as_schedule_single_action( time(), "bm_backup_step_{$next_step}", [], self::ACTION_GROUP );
+        as_schedule_single_action( time(), "mighty_backup_step_{$next_step}", [], self::ACTION_GROUP );
     }
 
     /**
@@ -389,14 +389,14 @@ class BM_Backup_Manager {
         $state['error']  = $error;
         $this->save_state( $state );
 
-        BM_Backup_Log_Stream::add( 'FAILED: ' . $error );
-        BM_Backup_Log_Stream::flush();
+        Mighty_Backup_Log_Stream::add( 'FAILED: ' . $error );
+        Mighty_Backup_Log_Stream::flush();
 
-        do_action( 'bm_backup_failed', $state, $error );
+        do_action( 'mighty_backup_failed', $state, $error );
 
         // Update log entry.
         if ( $state['log_id'] ) {
-            $logger = new BM_Backup_Logger();
+            $logger = new Mighty_Backup_Logger();
             $logger->fail( $state['log_id'], $error );
         }
 
@@ -408,7 +408,7 @@ class BM_Backup_Manager {
         }
 
         // Send failure notification.
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         $this->maybe_send_failure_email( $settings, $error, $state['timestamp'] );
     }
 
@@ -458,7 +458,7 @@ class BM_Backup_Manager {
      */
     public function get_status( int $log_since = 0 ): array {
         $state    = $this->get_state();
-        $log_data = BM_Backup_Log_Stream::get( $log_since );
+        $log_data = Mighty_Backup_Log_Stream::get( $log_since );
 
         if ( ! $state ) {
             return [
@@ -517,7 +517,7 @@ class BM_Backup_Manager {
 
         // Unschedule any queued backup step actions.
         foreach ( self::STEPS as $step ) {
-            as_unschedule_all_actions( "bm_backup_step_{$step}", [], self::ACTION_GROUP );
+            as_unschedule_all_actions( "mighty_backup_step_{$step}", [], self::ACTION_GROUP );
         }
 
         // Delete temp files.
@@ -529,12 +529,12 @@ class BM_Backup_Manager {
 
         // Mark log entry as failed.
         if ( $state['log_id'] ) {
-            $logger = new BM_Backup_Logger();
+            $logger = new Mighty_Backup_Logger();
             $logger->fail( $state['log_id'], 'Cancelled.' );
         }
 
         $this->clear_state();
-        BM_Backup_Log_Stream::clear();
+        Mighty_Backup_Log_Stream::clear();
 
         return true;
     }
@@ -569,7 +569,7 @@ class BM_Backup_Manager {
      * @throws \Exception If disk space is insufficient.
      */
     private function check_disk_space( string $type ): void {
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $last   = $logger->get_last_completed();
 
         if ( ! $last ) {
@@ -630,7 +630,7 @@ class BM_Backup_Manager {
     /**
      * Send failure notification email if configured.
      */
-    private function maybe_send_failure_email( BM_Backup_Settings $settings, string $error, string $timestamp ): void {
+    private function maybe_send_failure_email( Mighty_Backup_Settings $settings, string $error, string $timestamp ): void {
         if ( ! $settings->get( 'notify_on_failure' ) ) {
             return;
         }

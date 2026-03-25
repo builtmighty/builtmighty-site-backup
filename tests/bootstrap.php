@@ -10,9 +10,9 @@ require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 
 // WordPress constants required by plugin files.
 defined( 'ABSPATH' )           || define( 'ABSPATH', dirname( __DIR__ ) . '/' );
-defined( 'BM_BACKUP_VERSION' ) || define( 'BM_BACKUP_VERSION', '1.12.0' );
-defined( 'BM_BACKUP_DIR' )     || define( 'BM_BACKUP_DIR', dirname( __DIR__ ) . '/' );
-defined( 'BM_BACKUP_URL' )     || define( 'BM_BACKUP_URL', 'http://localhost/' );
+defined( 'MIGHTY_BACKUP_VERSION' ) || define( 'MIGHTY_BACKUP_VERSION', '1.12.0' );
+defined( 'MIGHTY_BACKUP_DIR' )     || define( 'MIGHTY_BACKUP_DIR', dirname( __DIR__ ) . '/' );
+defined( 'MIGHTY_BACKUP_URL' )     || define( 'MIGHTY_BACKUP_URL', 'http://localhost/' );
 defined( 'DB_HOST' )           || define( 'DB_HOST', 'localhost' );
 defined( 'DB_USER' )           || define( 'DB_USER', 'root' );
 defined( 'DB_PASSWORD' )       || define( 'DB_PASSWORD', '' );

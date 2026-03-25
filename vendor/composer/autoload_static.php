@@ -17,72 +17,72 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
     );
 
     public static $prefixLengthsPsr4 = array (
-        'S' =>
+        'S' => 
         array (
             'Symfony\\Polyfill\\Mbstring\\' => 26,
             'Symfony\\Polyfill\\Ctype\\' => 23,
             'Symfony\\Component\\Filesystem\\' => 29,
         ),
-        'P' =>
+        'P' => 
         array (
             'Psr\\Http\\Message\\' => 17,
             'Psr\\Http\\Client\\' => 16,
         ),
-        'J' =>
+        'J' => 
         array (
             'JmesPath\\' => 9,
         ),
-        'G' =>
+        'G' => 
         array (
             'GuzzleHttp\\Psr7\\' => 16,
             'GuzzleHttp\\Promise\\' => 19,
             'GuzzleHttp\\' => 11,
         ),
-        'A' =>
+        'A' => 
         array (
             'Aws\\' => 4,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'Symfony\\Polyfill\\Mbstring\\' =>
+        'Symfony\\Polyfill\\Mbstring\\' => 
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-mbstring',
         ),
-        'Symfony\\Polyfill\\Ctype\\' =>
+        'Symfony\\Polyfill\\Ctype\\' => 
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-ctype',
         ),
-        'Symfony\\Component\\Filesystem\\' =>
+        'Symfony\\Component\\Filesystem\\' => 
         array (
             0 => __DIR__ . '/..' . '/symfony/filesystem',
         ),
-        'Psr\\Http\\Message\\' =>
+        'Psr\\Http\\Message\\' => 
         array (
             0 => __DIR__ . '/..' . '/psr/http-factory/src',
             1 => __DIR__ . '/..' . '/psr/http-message/src',
         ),
-        'Psr\\Http\\Client\\' =>
+        'Psr\\Http\\Client\\' => 
         array (
             0 => __DIR__ . '/..' . '/psr/http-client/src',
         ),
-        'JmesPath\\' =>
+        'JmesPath\\' => 
         array (
             0 => __DIR__ . '/..' . '/mtdowling/jmespath.php/src',
         ),
-        'GuzzleHttp\\Psr7\\' =>
+        'GuzzleHttp\\Psr7\\' => 
         array (
             0 => __DIR__ . '/..' . '/guzzlehttp/psr7/src',
         ),
-        'GuzzleHttp\\Promise\\' =>
+        'GuzzleHttp\\Promise\\' => 
         array (
             0 => __DIR__ . '/..' . '/guzzlehttp/promises/src',
         ),
-        'GuzzleHttp\\' =>
+        'GuzzleHttp\\' => 
         array (
             0 => __DIR__ . '/..' . '/guzzlehttp/guzzle/src',
         ),
-        'Aws\\' =>
+        'Aws\\' => 
         array (
             0 => __DIR__ . '/..' . '/aws/aws-sdk-php/src',
         ),
@@ -179,7 +179,6 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
         'Aws\\Api\\Shape' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Api/Shape.php',
         'Aws\\Api\\ShapeMap' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Api/ShapeMap.php',
         'Aws\\Api\\StructureShape' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Api/StructureShape.php',
-        'Aws\\Api\\SupportedProtocols' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Api/SupportedProtocols.php',
         'Aws\\Api\\TimestampShape' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Api/TimestampShape.php',
         'Aws\\Api\\Validator' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Api/Validator.php',
         'Aws\\AppConfigData\\AppConfigDataClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/AppConfigData/AppConfigDataClient.php',
@@ -443,7 +442,6 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
         'Aws\\Crypto\\AesStreamInterface' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/AesStreamInterface.php',
         'Aws\\Crypto\\AesStreamInterfaceV2' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/AesStreamInterfaceV2.php',
         'Aws\\Crypto\\AlgorithmConstants' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/AlgorithmConstants.php',
-        'Aws\\Crypto\\AlgorithmSuite' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/AlgorithmSuite.php',
         'Aws\\Crypto\\Cipher\\Cbc' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/Cipher/Cbc.php',
         'Aws\\Crypto\\Cipher\\CipherBuilderTrait' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/Cipher/CipherBuilderTrait.php',
         'Aws\\Crypto\\Cipher\\CipherMethod' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Crypto/Cipher/CipherMethod.php',
@@ -1239,7 +1237,6 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
         'Aws\\Token\\TokenAuthorization' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Token/TokenAuthorization.php',
         'Aws\\Token\\TokenInterface' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Token/TokenInterface.php',
         'Aws\\Token\\TokenProvider' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Token/TokenProvider.php',
-        'Aws\\Token\\TokenSource' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/Token/TokenSource.php',
         'Aws\\TraceMiddleware' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/TraceMiddleware.php',
         'Aws\\TranscribeService\\Exception\\TranscribeServiceException' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/TranscribeService/Exception/TranscribeServiceException.php',
         'Aws\\TranscribeService\\TranscribeServiceClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/TranscribeService/TranscribeServiceClient.php',
@@ -1298,19 +1295,6 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
         'Aws\\mgn\\mgnClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/mgn/mgnClient.php',
         'Aws\\signer\\Exception\\signerException' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/signer/Exception/signerException.php',
         'Aws\\signer\\signerClient' => __DIR__ . '/..' . '/aws/aws-sdk-php/src/signer/signerClient.php',
-        'BM_Backup_Api_Endpoint' => __DIR__ . '/../..' . '/includes/class-api-endpoint.php',
-        'BM_Backup_CLI_Command' => __DIR__ . '/../..' . '/includes/class-cli-command.php',
-        'BM_Backup_Database_Exporter' => __DIR__ . '/../..' . '/includes/class-database-exporter.php',
-        'BM_Backup_Dev_Mode' => __DIR__ . '/../..' . '/includes/class-dev-mode.php',
-        'BM_Backup_File_Archiver' => __DIR__ . '/../..' . '/includes/class-file-archiver.php',
-        'BM_Backup_Log_Stream' => __DIR__ . '/../..' . '/includes/class-log-stream.php',
-        'BM_Backup_Logger' => __DIR__ . '/../..' . '/includes/class-logger.php',
-        'BM_Backup_Manager' => __DIR__ . '/../..' . '/includes/class-backup-manager.php',
-        'BM_Backup_Retention_Manager' => __DIR__ . '/../..' . '/includes/class-retention-manager.php',
-        'BM_Backup_Scheduler' => __DIR__ . '/../..' . '/includes/class-scheduler.php',
-        'BM_Backup_Settings' => __DIR__ . '/../..' . '/includes/class-settings.php',
-        'BM_Backup_Spaces_Client' => __DIR__ . '/../..' . '/includes/class-spaces-client.php',
-        'BM_Devcontainer_Manager' => __DIR__ . '/../..' . '/includes/class-devcontainer-manager.php',
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
         'GuzzleHttp\\BodySummarizer' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/BodySummarizer.php',
         'GuzzleHttp\\BodySummarizerInterface' => __DIR__ . '/..' . '/guzzlehttp/guzzle/src/BodySummarizerInterface.php',
@@ -1409,6 +1393,19 @@ class ComposerStaticInit5c5e0a92e8f1ed57537bf85e4ea6494c
         'JmesPath\\TreeCompiler' => __DIR__ . '/..' . '/mtdowling/jmespath.php/src/TreeCompiler.php',
         'JmesPath\\TreeInterpreter' => __DIR__ . '/..' . '/mtdowling/jmespath.php/src/TreeInterpreter.php',
         'JmesPath\\Utils' => __DIR__ . '/..' . '/mtdowling/jmespath.php/src/Utils.php',
+        'Mighty_Backup_Api_Endpoint' => __DIR__ . '/../..' . '/includes/class-api-endpoint.php',
+        'Mighty_Backup_CLI_Command' => __DIR__ . '/../..' . '/includes/class-cli-command.php',
+        'Mighty_Backup_Database_Exporter' => __DIR__ . '/../..' . '/includes/class-database-exporter.php',
+        'Mighty_Backup_Dev_Mode' => __DIR__ . '/../..' . '/includes/class-dev-mode.php',
+        'Mighty_Backup_File_Archiver' => __DIR__ . '/../..' . '/includes/class-file-archiver.php',
+        'Mighty_Backup_Log_Stream' => __DIR__ . '/../..' . '/includes/class-log-stream.php',
+        'Mighty_Backup_Logger' => __DIR__ . '/../..' . '/includes/class-logger.php',
+        'Mighty_Backup_Manager' => __DIR__ . '/../..' . '/includes/class-backup-manager.php',
+        'Mighty_Backup_Retention_Manager' => __DIR__ . '/../..' . '/includes/class-retention-manager.php',
+        'Mighty_Backup_Scheduler' => __DIR__ . '/../..' . '/includes/class-scheduler.php',
+        'Mighty_Backup_Settings' => __DIR__ . '/../..' . '/includes/class-settings.php',
+        'Mighty_Backup_Spaces_Client' => __DIR__ . '/../..' . '/includes/class-spaces-client.php',
+        'Mighty_Devcontainer_Manager' => __DIR__ . '/../..' . '/includes/class-devcontainer-manager.php',
         'Psr\\Http\\Client\\ClientExceptionInterface' => __DIR__ . '/..' . '/psr/http-client/src/ClientExceptionInterface.php',
         'Psr\\Http\\Client\\ClientInterface' => __DIR__ . '/..' . '/psr/http-client/src/ClientInterface.php',
         'Psr\\Http\\Client\\NetworkExceptionInterface' => __DIR__ . '/..' . '/psr/http-client/src/NetworkExceptionInterface.php',

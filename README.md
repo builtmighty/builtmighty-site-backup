@@ -1,6 +1,6 @@
-# Built Mighty Site Backup
+# Mighty Backup
 
-A WordPress plugin that automates site backups to DigitalOcean Spaces. Designed for the Built Mighty team, it supports scheduled and on-demand backups of both the database and file system, with built-in integration for the staged-loader Codespace pipeline.
+A WordPress plugin that automates site backups to DigitalOcean Spaces. It supports scheduled and on-demand backups of both the database and file system, with built-in integration for the staged-loader Codespace pipeline.
 
 [![Download ZIP](https://img.shields.io/badge/Download-ZIP-blue?style=for-the-badge)](https://github.com/builtmighty/builtmighty-site-backup/releases/latest/download/builtmighty-site-backup.zip)
 
@@ -39,7 +39,7 @@ wp plugin install https://github.com/builtmighty/builtmighty-site-backup/release
 
 ## Installation
 
-1. Upload the plugin to `wp-content/plugins/builtmighty-site-backup`.
+1. Upload the plugin to `wp-content/plugins/mighty-backup`.
 2. Run `composer install` from the plugin directory.
 3. Activate the plugin in WordPress (or Network Activate on multisite).
 4. Go to **Settings > Site Backup** and configure your DigitalOcean Spaces credentials.
@@ -85,19 +85,19 @@ The following paths are always excluded from file backups:
 
 ```bash
 # Run a backup (synchronous by default)
-wp bm-backup run [--type=<full|db|files>] [--async] [--timeout=<seconds>]
+wp mighty-backup run [--type=<full|db|files>] [--async] [--timeout=<seconds>]
 
 # Check backup status
-wp bm-backup status
+wp mighty-backup status
 
 # List backups stored on Spaces
-wp bm-backup list [--type=<all|db|files>]
+wp mighty-backup list [--type=<all|db|files>]
 
 # Manually trigger retention cleanup
-wp bm-backup prune
+wp mighty-backup prune
 
 # Test the Spaces connection
-wp bm-backup test
+wp mighty-backup test
 ```
 
 ## Developer Hooks & Filters
@@ -106,38 +106,38 @@ wp bm-backup test
 
 | Filter | Default | Description |
 |--------|---------|-------------|
-| `bm_backup_db_batch_size` | `1000` | Rows per paginated DB export query |
-| `bm_backup_db_gzip_level` | `3` | Gzip compression level for DB dump (1–9) |
-| `bm_backup_files_gzip_level` | `3` | Gzip compression level for file archive (1–9) |
-| `bm_backup_upload_part_size` | `26214400` | Multipart upload part size in bytes (25 MB) |
-| `bm_backup_upload_concurrency` | `5` | Concurrent upload parts |
-| `bm_backup_upload_max_retries` | `3` | Max upload retries per part |
-| `bm_backup_admin_domains` | `['builtmighty.com']` | Email domains permitted to access the settings page |
-| `bm_backup_streamlined_days` | `90` | Days of WooCommerce orders to include in streamlined mode |
-| `bm_backup_is_log_table` | `(bool)` | Override whether a table is treated as a log table in streamlined mode |
-| `bm_backup_order_table_config` | `(array)` | Override the order table → ID column mapping in streamlined mode |
+| `mighty_backup_db_batch_size` | `1000` | Rows per paginated DB export query |
+| `mighty_backup_db_gzip_level` | `3` | Gzip compression level for DB dump (1–9) |
+| `mighty_backup_files_gzip_level` | `3` | Gzip compression level for file archive (1–9) |
+| `mighty_backup_upload_part_size` | `26214400` | Multipart upload part size in bytes (25 MB) |
+| `mighty_backup_upload_concurrency` | `5` | Concurrent upload parts |
+| `mighty_backup_upload_max_retries` | `3` | Max upload retries per part |
+| `mighty_backup_admin_domains` | `['builtmighty.com']` | Email domains permitted to access the settings page |
+| `mighty_backup_streamlined_days` | `90` | Days of WooCommerce orders to include in streamlined mode |
+| `mighty_backup_is_log_table` | `(bool)` | Override whether a table is treated as a log table in streamlined mode |
+| `mighty_backup_order_table_config` | `(array)` | Override the order table → ID column mapping in streamlined mode |
 
 ### Action Hooks
 
 | Hook | Args | Description |
 |------|------|-------------|
-| `bm_backup_before_start` | `$state` | Fires at the top of the start step |
-| `bm_backup_after_start` | `$state` | Fires after the start step |
-| `bm_backup_before_export_db` | `$state` | Fires before DB export |
-| `bm_backup_after_export_db` | `$state, $db_path` | Fires after DB export |
-| `bm_backup_before_archive_files` | `$state` | Fires before file archive |
-| `bm_backup_after_archive_files` | `$state, $files_path` | Fires after file archive |
-| `bm_backup_before_upload` | `$state, $type` | Fires before each upload step |
-| `bm_backup_after_upload` | `$state, $type, $remote_key` | Fires after each upload step |
-| `bm_backup_completed` | `$state` | Fires when backup completes successfully |
-| `bm_backup_failed` | `$state, $error` | Fires when backup fails |
+| `mighty_backup_before_start` | `$state` | Fires at the top of the start step |
+| `mighty_backup_after_start` | `$state` | Fires after the start step |
+| `mighty_backup_before_export_db` | `$state` | Fires before DB export |
+| `mighty_backup_after_export_db` | `$state, $db_path` | Fires after DB export |
+| `mighty_backup_before_archive_files` | `$state` | Fires before file archive |
+| `mighty_backup_after_archive_files` | `$state, $files_path` | Fires after file archive |
+| `mighty_backup_before_upload` | `$state, $type` | Fires before each upload step |
+| `mighty_backup_after_upload` | `$state, $type, $remote_key` | Fires after each upload step |
+| `mighty_backup_completed` | `$state` | Fires when backup completes successfully |
+| `mighty_backup_failed` | `$state, $error` | Fires when backup fails |
 
 ## REST API
 
 ### Codespace Config
 
 ```
-GET /wp-json/bm-backup/v1/codespace-config
+GET /wp-json/mighty-backup/v1/codespace-config
 Authorization: Bearer <api-key>
 ```
 
@@ -161,7 +161,7 @@ Each step runs independently to avoid timeout issues on resource-constrained hos
 ## Security
 
 - Secret keys encrypted with AES-256-CBC using WordPress salts
-- Optional `BM_BACKUP_SECRET` constant in `wp-config.php` adds a second pepper to AES-256-CBC key derivation
+- Optional `MIGHTY_BACKUP_SECRET` constant in `wp-config.php` adds a second pepper to AES-256-CBC key derivation (also accepts legacy `BM_BACKUP_SECRET` for backwards compatibility)
 - Database credentials passed to mysqldump via temporary `--defaults-extra-file` (not visible in process lists or `/proc`)
 - Credential fields are write-only — values never appear in page source or form fields
 - Settings page restricted to authorized email domains (default: `@builtmighty.com`)

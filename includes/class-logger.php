@@ -7,7 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_Logger {
+class Mighty_Backup_Logger {
 
     /**
      * Get the log table name.

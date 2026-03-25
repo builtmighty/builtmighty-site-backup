@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for BM_Backup_Retention_Manager — pruning logic.
+ * Tests for Mighty_Backup_Retention_Manager — pruning logic.
  */
 
 use Brain\Monkey;
@@ -32,11 +32,11 @@ class RetentionManagerTest extends TestCase {
     }
 
     public function test_prune_does_nothing_when_under_limit(): void {
-        $client = $this->createMock( BM_Backup_Spaces_Client::class );
+        $client = $this->createMock( Mighty_Backup_Spaces_Client::class );
         $client->method( 'list_objects' )->willReturn( $this->make_objects( 3 ) );
         $client->expects( $this->never() )->method( 'delete_objects' );
 
-        $manager = new BM_Backup_Retention_Manager( $client, 7 );
+        $manager = new Mighty_Backup_Retention_Manager( $client, 7 );
         $result  = $manager->prune();
 
         $this->assertSame( 0, $result['databases_deleted'] );
@@ -44,11 +44,11 @@ class RetentionManagerTest extends TestCase {
     }
 
     public function test_prune_does_nothing_when_at_limit(): void {
-        $client = $this->createMock( BM_Backup_Spaces_Client::class );
+        $client = $this->createMock( Mighty_Backup_Spaces_Client::class );
         $client->method( 'list_objects' )->willReturn( $this->make_objects( 7 ) );
         $client->expects( $this->never() )->method( 'delete_objects' );
 
-        $manager = new BM_Backup_Retention_Manager( $client, 7 );
+        $manager = new Mighty_Backup_Retention_Manager( $client, 7 );
         $result  = $manager->prune();
 
         $this->assertSame( 0, $result['databases_deleted'] );
@@ -58,7 +58,7 @@ class RetentionManagerTest extends TestCase {
     public function test_prune_deletes_excess_backups(): void {
         $objects = $this->make_objects( 10 );
 
-        $client = $this->createMock( BM_Backup_Spaces_Client::class );
+        $client = $this->createMock( Mighty_Backup_Spaces_Client::class );
         $client->method( 'list_objects' )->willReturn( $objects );
 
         // Expect 3 to be deleted (10 - 7 = 3), applied to both prefixes.
@@ -66,7 +66,7 @@ class RetentionManagerTest extends TestCase {
                ->method( 'delete_objects' )
                ->with( $this->countOf( 3 ) );
 
-        $manager = new BM_Backup_Retention_Manager( $client, 7 );
+        $manager = new Mighty_Backup_Retention_Manager( $client, 7 );
         $result  = $manager->prune();
 
         $this->assertSame( 3, $result['databases_deleted'] );
@@ -77,13 +77,13 @@ class RetentionManagerTest extends TestCase {
         $objects       = $this->make_objects( 5 );
         $deleted_keys  = [];
 
-        $client = $this->createMock( BM_Backup_Spaces_Client::class );
+        $client = $this->createMock( Mighty_Backup_Spaces_Client::class );
         $client->method( 'list_objects' )->willReturn( $objects );
         $client->method( 'delete_objects' )->willReturnCallback( function ( array $keys ) use ( &$deleted_keys ) {
             $deleted_keys = array_merge( $deleted_keys, $keys );
         } );
 
-        $manager = new BM_Backup_Retention_Manager( $client, 3 );
+        $manager = new Mighty_Backup_Retention_Manager( $client, 3 );
         $manager->prune();
 
         // With 5 objects and limit 3, the 2 oldest (index 3 and 4) should be deleted.
@@ -92,11 +92,11 @@ class RetentionManagerTest extends TestCase {
     }
 
     public function test_retention_count_minimum_is_one(): void {
-        $client = $this->createMock( BM_Backup_Spaces_Client::class );
+        $client = $this->createMock( Mighty_Backup_Spaces_Client::class );
         $client->method( 'list_objects' )->willReturn( $this->make_objects( 3 ) );
 
         // Passing 0 should be clamped to 1.
-        $manager = new BM_Backup_Retention_Manager( $client, 0 );
+        $manager = new Mighty_Backup_Retention_Manager( $client, 0 );
 
         $client->expects( $this->exactly( 2 ) )
                ->method( 'delete_objects' )

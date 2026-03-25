@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for BM_Backup_Logger — table name and DB interaction.
+ * Tests for Mighty_Backup_Logger — table name and DB interaction.
  */
 
 use Brain\Monkey;
@@ -29,7 +29,7 @@ class LoggerTest extends TestCase {
         global $wpdb;
         $wpdb = $this->make_wpdb( 'wp_' );
 
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $this->assertSame( 'wp_bm_backup_log', $logger->get_table_name() );
     }
 
@@ -37,7 +37,7 @@ class LoggerTest extends TestCase {
         global $wpdb;
         $wpdb = $this->make_wpdb( 'mysite_' );
 
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $this->assertSame( 'mysite_bm_backup_log', $logger->get_table_name() );
     }
 
@@ -54,7 +54,7 @@ class LoggerTest extends TestCase {
             $inserted_data = $data;
         };
 
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
 
         // Use reflection to call start() with mocked $wpdb->insert as a closure.
         // The real method calls $wpdb->insert() as a method — stub it on the object.
@@ -76,7 +76,7 @@ class LoggerTest extends TestCase {
                   );
 
         $wpdb   = $mock_wpdb;
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $id     = $logger->start( 'full', 'scheduled' );
 
         $this->assertSame( 99, $id );
@@ -104,7 +104,7 @@ class LoggerTest extends TestCase {
                   );
 
         $wpdb   = $mock_wpdb;
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $logger->complete( 5 );
     }
 
@@ -132,7 +132,7 @@ class LoggerTest extends TestCase {
                   );
 
         $wpdb   = $mock_wpdb;
-        $logger = new BM_Backup_Logger();
+        $logger = new Mighty_Backup_Logger();
         $logger->fail( 7, $error_message );
     }
 }

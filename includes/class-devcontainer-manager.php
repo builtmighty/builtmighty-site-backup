@@ -11,16 +11,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class BM_Devcontainer_Manager {
+class Mighty_Devcontainer_Manager {
 
 	private const GLOBAL_OWNER = 'builtmighty';
 	private const GLOBAL_REPO  = '.devcontainer';
 	private const GLOBAL_REF   = 'main';
 	private const API_BASE     = 'https://api.github.com';
 
-	private BM_Backup_Settings $settings;
+	private Mighty_Backup_Settings $settings;
 
-	public function __construct( BM_Backup_Settings $settings ) {
+	public function __construct( Mighty_Backup_Settings $settings ) {
 		$this->settings = $settings;
 	}
 
@@ -28,15 +28,15 @@ class BM_Devcontainer_Manager {
 	 * Register AJAX handlers.
 	 */
 	public function init(): void {
-		add_action( 'wp_ajax_bm_backup_devcontainer_check', [ $this, 'ajax_check_version' ] );
-		add_action( 'wp_ajax_bm_backup_devcontainer_update', [ $this, 'ajax_install_or_update' ] );
+		add_action( 'wp_ajax_mighty_backup_devcontainer_check', [ $this, 'ajax_check_version' ] );
+		add_action( 'wp_ajax_mighty_backup_devcontainer_update', [ $this, 'ajax_install_or_update' ] );
 	}
 
 	/**
 	 * AJAX: Check the devcontainer version.
 	 */
 	public function ajax_check_version(): void {
-		check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+		check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
 		if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
 			wp_send_json_error( 'Unauthorized' );
@@ -58,7 +58,7 @@ class BM_Devcontainer_Manager {
 	 * AJAX: Install or update the devcontainer.
 	 */
 	public function ajax_install_or_update(): void {
-		check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+		check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
 		if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
 			wp_send_json_error( 'Unauthorized' );
@@ -282,7 +282,7 @@ class BM_Devcontainer_Manager {
 		$pr_body = "Updates the `.devcontainer` configuration to **v{$latest}** from the global template.\n\n"
 			. "- `.devcontainer/setup/` has been preserved.\n"
 			. "- All other `.devcontainer/` files have been replaced with the latest template.\n\n"
-			. "Created by **BM Site Backup** plugin.";
+			. "Created by **Mighty Backup** plugin.";
 
 		$pr = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/pulls',
@@ -304,7 +304,7 @@ class BM_Devcontainer_Manager {
 	 * Check whether the current user is authorised to manage the plugin.
 	 */
 	private function is_authorized_user(): bool {
-		return bm_backup_is_authorized_user();
+		return mighty_backup_is_authorized_user();
 	}
 
 	// ------------------------------------------------------------------
@@ -404,7 +404,7 @@ class BM_Devcontainer_Manager {
 		$args = [
 			'headers' => [
 				'Accept'     => 'application/vnd.github+json',
-				'User-Agent' => 'BM-Site-Backup/' . BM_BACKUP_VERSION,
+				'User-Agent' => 'Mighty-Backup/' . MIGHTY_BACKUP_VERSION,
 			],
 			'timeout' => 30,
 		];
@@ -430,7 +430,7 @@ class BM_Devcontainer_Manager {
 				'Accept'        => 'application/vnd.github+json',
 				'Authorization' => 'Bearer ' . $config['pat'],
 				'Content-Type'  => 'application/json',
-				'User-Agent'    => 'BM-Site-Backup/' . BM_BACKUP_VERSION,
+				'User-Agent'    => 'Mighty-Backup/' . MIGHTY_BACKUP_VERSION,
 			],
 			'body'    => wp_json_encode( $body ),
 			'timeout' => 30,
@@ -451,7 +451,7 @@ class BM_Devcontainer_Manager {
 				'Accept'        => 'application/vnd.github+json',
 				'Authorization' => 'Bearer ' . $config['pat'],
 				'Content-Type'  => 'application/json',
-				'User-Agent'    => 'BM-Site-Backup/' . BM_BACKUP_VERSION,
+				'User-Agent'    => 'Mighty-Backup/' . MIGHTY_BACKUP_VERSION,
 			],
 			'body'    => wp_json_encode( $body ),
 			'timeout' => 30,

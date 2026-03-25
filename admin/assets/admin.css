@@ -1,44 +1,44 @@
 /* Tab panels */
-.bm-tab-panel {
+.mb-tab-panel {
     display: none;
 }
 
-.bm-tab-panel.active {
+.mb-tab-panel.active {
     display: block;
 }
 
-.bm-backup-wrap .nav-tab-wrapper {
+.mb-backup-wrap .nav-tab-wrapper {
     margin-bottom: 20px;
 }
 
-.bm-backup-wrap h2 {
+.mb-backup-wrap h2 {
     margin-top: 2em;
 }
 
-.bm-backup-wrap h2:first-of-type {
+.mb-backup-wrap h2:first-of-type {
     margin-top: 0;
 }
 
 /* Result messages */
-.bm-result-message {
+.mb-result-message {
     margin-left: 10px;
     font-weight: 600;
 }
 
-.bm-result-message.success {
+.mb-result-message.success {
     color: #00a32a;
 }
 
-.bm-result-message.error {
+.mb-result-message.error {
     color: #d63638;
 }
 
-.bm-result-message.loading {
+.mb-result-message.loading {
     color: #666;
 }
 
 /* Status badges */
-.bm-status {
+.mb-status {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 3px;
@@ -47,45 +47,45 @@
     text-transform: uppercase;
 }
 
-.bm-status-completed {
+.mb-status-completed {
     background: #d4edda;
     color: #155724;
 }
 
-.bm-status-running {
+.mb-status-running {
     background: #fff3cd;
     color: #856404;
 }
 
-.bm-status-failed {
+.mb-status-failed {
     background: #f8d7da;
     color: #721c24;
 }
 
-.bm-status-cancelled {
+.mb-status-cancelled {
     background: #e2e3e5;
     color: #383d41;
 }
 
 /* Error cell — expandable */
-.bm-error-cell {
+.mb-error-cell {
     max-width: 300px;
     word-wrap: break-word;
 }
 
-.bm-error-full {
+.mb-error-full {
     display: none;
 }
 
-.bm-error-cell.expanded .bm-error-full {
+.mb-error-cell.expanded .mb-error-full {
     display: inline;
 }
 
-.bm-error-cell.expanded .bm-error-short {
+.mb-error-cell.expanded .mb-error-short {
     display: none;
 }
 
-.bm-error-toggle {
+.mb-error-toggle {
     color: #0073aa;
     cursor: pointer;
     font-size: 12px;
@@ -94,20 +94,20 @@
 }
 
 /* Running button */
-#bm-run-backup.running {
+#mb-run-backup.running {
     opacity: 0.7;
     pointer-events: none;
 }
 
 /* Step indicators */
-.bm-steps {
+.mb-steps {
     display: flex;
     gap: 6px;
     margin-bottom: 10px;
     flex-wrap: wrap;
 }
 
-.bm-step {
+.mb-step {
     font-size: 12px;
     padding: 2px 10px;
     border-radius: 3px;
@@ -116,24 +116,24 @@
     white-space: nowrap;
 }
 
-.bm-step-active {
+.mb-step-active {
     background: #0073aa;
     color: #fff;
 }
 
-.bm-step-done {
+.mb-step-done {
     background: #d4edda;
     color: #155724;
 }
 
 /* Progress bar */
-.bm-progress-box {
+.mb-progress-box {
     display: none;
     margin-top: 12px;
     max-width: 500px;
 }
 
-.bm-progress-bar-wrap {
+.mb-progress-bar-wrap {
     background: #e0e0e0;
     border-radius: 4px;
     height: 20px;
@@ -141,7 +141,7 @@
     margin-bottom: 6px;
 }
 
-.bm-progress-bar {
+.mb-progress-bar {
     background: #0073aa;
     height: 100%;
     width: 0;
@@ -149,25 +149,25 @@
     transition: width 0.5s ease;
 }
 
-.bm-progress-text {
+.mb-progress-text {
     font-size: 13px;
     color: #555;
     font-style: italic;
 }
 
 /* Live Log Box */
-.bm-log-wrap {
+.mb-log-wrap {
     margin-top: 12px;
 }
 
-.bm-log-header {
+.mb-log-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 6px;
 }
 
-.bm-log-title {
+.mb-log-title {
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
@@ -175,7 +175,7 @@
     letter-spacing: 0.5px;
 }
 
-.bm-log-toggle {
+.mb-log-toggle {
     font-size: 12px;
     color: #0073aa;
     cursor: pointer;
@@ -185,7 +185,7 @@
     text-decoration: underline;
 }
 
-.bm-log-box {
+.mb-log-box {
     background: #1e1e1e;
     color: #d4d4d4;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -197,21 +197,21 @@
     overflow-y: auto;
 }
 
-.bm-log-line {
-    animation: bm-log-fade-in 0.3s ease;
+.mb-log-line {
+    animation: mb-log-fade-in 0.3s ease;
 }
 
-.bm-log-time {
+.mb-log-time {
     color: #6a9955;
     margin-right: 8px;
     user-select: none;
 }
 
-.bm-log-message {
+.mb-log-message {
     color: #d4d4d4;
 }
 
-@keyframes bm-log-fade-in {
+@keyframes mb-log-fade-in {
     from {
         opacity: 0;
         transform: translateY(4px);
@@ -223,7 +223,7 @@
 }
 
 /* Show/hide password toggle */
-.bm-toggle-password {
+.mb-toggle-password {
     margin-left: 4px;
     text-decoration: underline;
     cursor: pointer;
@@ -234,12 +234,12 @@
     padding: 0;
 }
 
-.bm-toggle-password:hover {
+.mb-toggle-password:hover {
     color: #005177;
 }
 
 /* Inline validation */
-.bm-field-error {
+.mb-field-error {
     color: #d63638;
     font-size: 12px;
     display: block;
@@ -247,7 +247,7 @@
 }
 
 /* Confirmation modal */
-.bm-modal {
+.mb-modal {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
@@ -257,7 +257,7 @@
     justify-content: center;
 }
 
-.bm-modal-content {
+.mb-modal-content {
     background: #fff;
     padding: 24px;
     border-radius: 6px;
@@ -266,77 +266,77 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
-.bm-modal-content p {
+.mb-modal-content p {
     font-size: 14px;
     margin: 0 0 16px;
     line-height: 1.5;
 }
 
-.bm-modal-actions {
+.mb-modal-actions {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
 }
 
 /* Save button loading state */
-.bm-saving {
+.mb-saving {
     opacity: 0.7;
     pointer-events: none;
 }
 
 /* Day-of-week smooth toggle */
-.bm-hidden {
+.mb-hidden {
     display: none;
 }
 
 /* Bootstrap key section */
-.bm-bootstrap-key-wrap {
+.mb-bootstrap-key-wrap {
     display: flex;
     gap: 8px;
     align-items: center;
     max-width: 640px;
 }
 
-.bm-bootstrap-key-input {
+.mb-bootstrap-key-input {
     font-family: 'Courier New', Courier, monospace;
     font-size: 12px;
     flex: 1;
     min-width: 0;
 }
 
-.bm-copy-btn {
+.mb-copy-btn {
     flex-shrink: 0;
 }
 
-.bm-key-warning {
+.mb-key-warning {
     color: #856404;
 }
 
 /* Responsive */
 @media (max-width: 782px) {
-    .bm-progress-box {
+    .mb-progress-box {
         max-width: 100%;
     }
 
-    .bm-bootstrap-key-wrap {
+    .mb-bootstrap-key-wrap {
         flex-direction: column;
         max-width: 100%;
     }
 
-    .bm-bootstrap-key-input {
+    .mb-bootstrap-key-input {
         width: 100%;
     }
 
-    .bm-steps {
+    .mb-steps {
         flex-direction: column;
     }
 
-    .bm-modal-content {
+    .mb-modal-content {
         margin: 16px;
     }
 
-    .bm-backup-wrap .widefat td,
-    .bm-backup-wrap .widefat th {
+    .mb-backup-wrap .widefat td,
+    .mb-backup-wrap .widefat th {
         font-size: 12px;
         padding: 6px 4px;
     }

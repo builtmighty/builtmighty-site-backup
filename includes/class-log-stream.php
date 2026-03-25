@@ -11,7 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class BM_Backup_Log_Stream {
+class Mighty_Backup_Log_Stream {
 
 	private const OPTION_KEY    = 'bm_backup_live_log';
 	private const MAX_ENTRIES   = 200;

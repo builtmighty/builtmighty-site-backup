@@ -12,14 +12,14 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_Database_Exporter {
+class Mighty_Backup_Database_Exporter {
 
     private int $batch_size;
     private int $insert_batch = 100;
     private bool $streamlined;
 
     public function __construct( bool $streamlined = false ) {
-        $this->batch_size   = (int) apply_filters( 'bm_backup_db_batch_size', 1000 );
+        $this->batch_size   = (int) apply_filters( 'mighty_backup_db_batch_size', 1000 );
         $this->streamlined  = $streamlined;
     }
 
@@ -87,7 +87,7 @@ class BM_Backup_Database_Exporter {
                 escapeshellarg( $output_path )
             );
 
-            BM_Backup_Log_Stream::add( 'Using mysqldump for database export' );
+            Mighty_Backup_Log_Stream::add( 'Using mysqldump for database export' );
 
             exec( $command, $output, $return_code );
 
@@ -130,10 +130,10 @@ class BM_Backup_Database_Exporter {
             $tables      = $this->get_tables();
             $table_count = count( $tables );
 
-            BM_Backup_Log_Stream::add( 'Using PHP fallback for database export (' . $table_count . ' tables)' );
+            Mighty_Backup_Log_Stream::add( 'Using PHP fallback for database export (' . $table_count . ' tables)' );
 
             foreach ( $tables as $i => $table ) {
-                BM_Backup_Log_Stream::add( 'Exporting table ' . ( $i + 1 ) . '/' . $table_count . ': ' . $table );
+                Mighty_Backup_Log_Stream::add( 'Exporting table ' . ( $i + 1 ) . '/' . $table_count . ': ' . $table );
                 $this->export_table( $gz, $table );
             }
 
@@ -184,7 +184,7 @@ class BM_Backup_Database_Exporter {
             $ignore_flags .= ' --ignore-table=' . escapeshellarg( DB_NAME . '.' . $table );
         }
 
-        BM_Backup_Log_Stream::add( 'Using mysqldump (streamlined) for bulk tables' );
+        Mighty_Backup_Log_Stream::add( 'Using mysqldump (streamlined) for bulk tables' );
 
         $raw_path = $output_path . '.raw.sql';
         $err_path = $output_path . '.err';
@@ -237,7 +237,7 @@ class BM_Backup_Database_Exporter {
             fclose( $fh );
 
             // Append special tables via PHP into the same gzip stream.
-            BM_Backup_Log_Stream::add( 'Appending filtered/structure-only tables via PHP' );
+            Mighty_Backup_Log_Stream::add( 'Appending filtered/structure-only tables via PHP' );
             $this->export_streamlined_special_tables( $gz, $special );
         } finally {
             gzclose( $gz );
@@ -274,7 +274,7 @@ class BM_Backup_Database_Exporter {
             $tables      = $this->get_tables();
             $table_count = count( $tables );
 
-            BM_Backup_Log_Stream::add( 'Using PHP fallback for streamlined export (' . $table_count . ' tables)' );
+            Mighty_Backup_Log_Stream::add( 'Using PHP fallback for streamlined export (' . $table_count . ' tables)' );
 
             $log_tables   = $special['log_tables'];
             $order_tables = $special['order_tables'];
@@ -284,7 +284,7 @@ class BM_Backup_Database_Exporter {
             $order_item_ids = $this->get_order_item_ids( $order_ids );
 
             foreach ( $tables as $i => $table ) {
-                BM_Backup_Log_Stream::add( 'Exporting table ' . ( $i + 1 ) . '/' . $table_count . ': ' . $table );
+                Mighty_Backup_Log_Stream::add( 'Exporting table ' . ( $i + 1 ) . '/' . $table_count . ': ' . $table );
                 if ( in_array( $table, $log_tables, true ) ) {
                     // Structure only for log tables.
                     $this->export_table_structure_only( $gz, $table );
@@ -391,7 +391,7 @@ class BM_Backup_Database_Exporter {
             }
 
             // Filterable.
-            $is_log = (bool) apply_filters( 'bm_backup_is_log_table', $is_log, $table );
+            $is_log = (bool) apply_filters( 'mighty_backup_is_log_table', $is_log, $table );
 
             if ( $is_log ) {
                 $log_tables[] = $table;
@@ -433,7 +433,7 @@ class BM_Backup_Database_Exporter {
         }
 
         // Filterable.
-        $order_tables = (array) apply_filters( 'bm_backup_order_table_config', $order_tables );
+        $order_tables = (array) apply_filters( 'mighty_backup_order_table_config', $order_tables );
 
         // Legacy flag: orders live in wp_posts when HPOS table doesn't exist.
         $legacy = ! $has_hpos;
@@ -453,7 +453,7 @@ class BM_Backup_Database_Exporter {
     private function get_recent_order_ids(): array {
         global $wpdb;
 
-        $days     = (int) apply_filters( 'bm_backup_streamlined_days', 90 );
+        $days     = (int) apply_filters( 'mighty_backup_streamlined_days', 90 );
         $cutoff   = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days} days" ) );
         $prefix   = $wpdb->prefix;
 
@@ -868,16 +868,16 @@ class BM_Backup_Database_Exporter {
      * Get the configured gzip compression level.
      */
     private function get_gzip_level(): int {
-        return max( 1, min( 9, (int) apply_filters( 'bm_backup_db_gzip_level', 3 ) ) );
+        return max( 1, min( 9, (int) apply_filters( 'mighty_backup_db_gzip_level', 3 ) ) );
     }
 
     /**
      * Write SQL preamble (character set, modes, etc).
      */
     private function write_preamble( $gz ): void {
-        $header = "-- BuiltMighty Site Backup\n"
+        $header = "-- Mighty Backup\n"
                 . "-- Generated: " . gmdate( 'Y-m-d H:i:s' ) . " UTC\n"
-                . "-- Plugin Version: " . BM_BACKUP_VERSION . "\n"
+                . "-- Plugin Version: " . MIGHTY_BACKUP_VERSION . "\n"
                 . ( $this->streamlined ? "-- Mode: Streamlined\n" : '' )
                 . "\nSET NAMES utf8mb4;\n"
                 . "SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n"

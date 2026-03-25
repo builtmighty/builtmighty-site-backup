@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class BM_Backup_Dev_Mode {
+class Mighty_Backup_Dev_Mode {
 
 	const LIVE_URL_OPTION = 'bm_backup_live_url';
 
@@ -23,7 +23,7 @@ class BM_Backup_Dev_Mode {
 	public function init(): void {
 		add_action( 'admin_notices', [ $this, 'show_admin_notice' ] );
 		add_action( 'network_admin_notices', [ $this, 'show_admin_notice' ] );
-		add_action( 'wp_ajax_bm_backup_exit_dev_mode', [ $this, 'ajax_exit_dev_mode' ] );
+		add_action( 'wp_ajax_mighty_backup_exit_dev_mode', [ $this, 'ajax_exit_dev_mode' ] );
 	}
 
 	/**
@@ -69,7 +69,7 @@ class BM_Backup_Dev_Mode {
 		 *
 		 * @param bool $is_dev_mode True when a URL mismatch was detected.
 		 */
-		return (bool) apply_filters( 'bm_backup_is_dev_mode', $mismatch );
+		return (bool) apply_filters( 'mighty_backup_is_dev_mode', $mismatch );
 	}
 
 	/**
@@ -92,7 +92,7 @@ class BM_Backup_Dev_Mode {
 		 *
 		 * @param bool $show True to show the notice.
 		 */
-		if ( ! apply_filters( 'bm_backup_dev_mode_show_notice', true ) ) {
+		if ( ! apply_filters( 'mighty_backup_dev_mode_show_notice', true ) ) {
 			return;
 		}
 
@@ -101,15 +101,15 @@ class BM_Backup_Dev_Mode {
 		}
 
 		$settings_url = is_multisite()
-			? network_admin_url( 'settings.php?page=bm-site-backup' )
-			: admin_url( 'options-general.php?page=bm-site-backup' );
+			? network_admin_url( 'settings.php?page=mighty-backup' )
+			: admin_url( 'options-general.php?page=mighty-backup' );
 
 		printf(
 			'<div class="notice notice-warning"><p><strong>%s</strong> &mdash; %s <a href="%s">%s</a></p></div>',
-			esc_html__( 'BM Site Backup: Dev Mode Active', 'builtmighty-site-backup' ),
-			esc_html__( 'Automatic backups are disabled because the site URL has changed.', 'builtmighty-site-backup' ),
+			esc_html__( 'Mighty Backup: Dev Mode Active', 'mighty-backup' ),
+			esc_html__( 'Automatic backups are disabled because the site URL has changed.', 'mighty-backup' ),
 			esc_url( $settings_url ),
-			esc_html__( 'Manage settings &rarr;', 'builtmighty-site-backup' )
+			esc_html__( 'Manage settings &rarr;', 'mighty-backup' )
 		);
 	}
 
@@ -117,7 +117,7 @@ class BM_Backup_Dev_Mode {
 	 * AJAX: Exit dev mode — update the stored URL and reschedule cron.
 	 */
 	public function ajax_exit_dev_mode(): void {
-		check_ajax_referer( 'bm_backup_nonce', 'nonce' );
+		check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
 
 		if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
 			wp_send_json_error( 'Unauthorized' );
@@ -129,11 +129,11 @@ class BM_Backup_Dev_Mode {
 
 		update_site_option( self::LIVE_URL_OPTION, network_site_url() );
 
-		$scheduler = new BM_Backup_Scheduler();
+		$scheduler = new Mighty_Backup_Scheduler();
 		$scheduler->reschedule();
 
 		wp_send_json_success( [
-			'message' => __( 'Automatic backups have been re-enabled.', 'builtmighty-site-backup' ),
+			'message' => __( 'Automatic backups have been re-enabled.', 'mighty-backup' ),
 		] );
 	}
 
@@ -141,6 +141,6 @@ class BM_Backup_Dev_Mode {
 	 * Check whether the current user is authorised to manage the plugin.
 	 */
 	private function is_authorized_user(): bool {
-		return bm_backup_is_authorized_user();
+		return mighty_backup_is_authorized_user();
 	}
 }

@@ -2,7 +2,7 @@
 /**
  * REST API endpoint — returns Codespace configuration.
  *
- * GET /wp-json/bm-backup/v1/codespace-config
+ * GET /wp-json/mighty-backup/v1/codespace-config
  * Authorization: Bearer {api_key}
  *
  * Rate-limited to 10 requests per 60 seconds per IP.
@@ -13,9 +13,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class BM_Backup_Api_Endpoint {
+class Mighty_Backup_Api_Endpoint {
 
-	const ROUTE_NAMESPACE = 'bm-backup/v1';
+	const ROUTE_NAMESPACE = 'mighty-backup/v1';
 	const ROUTE           = '/codespace-config';
 	const API_KEY_OPTION  = 'bm_backup_api_key';
 	const RATE_LIMIT      = 10; // max requests per window
@@ -90,7 +90,7 @@ class BM_Backup_Api_Endpoint {
 		}
 
 		// Build and return configuration payload.
-		$settings = new BM_Backup_Settings();
+		$settings = new Mighty_Backup_Settings();
 		$all      = $settings->get_all();
 
 		$data = [

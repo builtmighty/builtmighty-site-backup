@@ -7,12 +7,12 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_Retention_Manager {
+class Mighty_Backup_Retention_Manager {
 
-    private BM_Backup_Spaces_Client $client;
+    private Mighty_Backup_Spaces_Client $client;
     private int $retention_count;
 
-    public function __construct( BM_Backup_Spaces_Client $client, int $retention_count ) {
+    public function __construct( Mighty_Backup_Spaces_Client $client, int $retention_count ) {
         $this->client          = $client;
         $this->retention_count = max( 1, $retention_count );
     }
@@ -29,13 +29,13 @@ class BM_Backup_Retention_Manager {
         try {
             $db_deleted = $this->prune_prefix( 'databases/' );
         } catch ( \Exception $e ) {
-            BM_Backup_Log_Stream::add( 'Retention cleanup failed for databases: ' . $e->getMessage() );
+            Mighty_Backup_Log_Stream::add( 'Retention cleanup failed for databases: ' . $e->getMessage() );
         }
 
         try {
             $files_deleted = $this->prune_prefix( 'files/' );
         } catch ( \Exception $e ) {
-            BM_Backup_Log_Stream::add( 'Retention cleanup failed for files: ' . $e->getMessage() );
+            Mighty_Backup_Log_Stream::add( 'Retention cleanup failed for files: ' . $e->getMessage() );
         }
 
         return [

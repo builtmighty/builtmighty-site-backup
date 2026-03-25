@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_File_Archiver {
+class Mighty_Backup_File_Archiver {
 
     /**
      * Default directory patterns to exclude from the archive.
@@ -35,9 +35,9 @@ class BM_Backup_File_Archiver {
         'wp-content/advanced-cache.php',
     ];
 
-    private BM_Backup_Settings $settings;
+    private Mighty_Backup_Settings $settings;
 
-    public function __construct( BM_Backup_Settings $settings ) {
+    public function __construct( Mighty_Backup_Settings $settings ) {
         $this->settings = $settings;
     }
 
@@ -65,15 +65,15 @@ class BM_Backup_File_Archiver {
 
         if ( $content_outside ) {
             // Two separate directory trees — must use PHP streaming (tar can't easily merge two roots).
-            BM_Backup_Log_Stream::add( 'wp-content is outside ABSPATH — archiving both locations' );
-            BM_Backup_Log_Stream::add( 'Core: ' . $wp_root );
-            BM_Backup_Log_Stream::add( 'Content: ' . $content_dir );
+            Mighty_Backup_Log_Stream::add( 'wp-content is outside ABSPATH — archiving both locations' );
+            Mighty_Backup_Log_Stream::add( 'Core: ' . $wp_root );
+            Mighty_Backup_Log_Stream::add( 'Content: ' . $content_dir );
             $this->archive_split_content( $output_path, $wp_root, $content_dir, $exclusions );
         } elseif ( $this->can_use_shell_tar() ) {
-            BM_Backup_Log_Stream::add( 'Using shell tar for file archive' );
+            Mighty_Backup_Log_Stream::add( 'Using shell tar for file archive' );
             $this->archive_with_tar( $output_path, $wp_root, $exclusions );
         } else {
-            BM_Backup_Log_Stream::add( 'Using PHP streaming gzip for file archive' );
+            Mighty_Backup_Log_Stream::add( 'Using PHP streaming gzip for file archive' );
             $this->archive_with_streaming_gzip( $output_path, $wp_root, $exclusions );
         }
 
@@ -107,11 +107,11 @@ class BM_Backup_File_Archiver {
         try {
             // Pass 1: WordPress core, excluding the skeleton wp-content that ships with core.
             $core_exclusions = array_merge( $exclusions, [ 'wp-content' ] );
-            BM_Backup_Log_Stream::add( 'Archiving WordPress core...' );
+            Mighty_Backup_Log_Stream::add( 'Archiving WordPress core...' );
             $this->stream_directory( $gz, $wp_root, '', $core_exclusions, $visited_dirs );
 
             // Pass 2: Real wp-content directory, mapped to wp-content/ in the archive.
-            BM_Backup_Log_Stream::add( 'Archiving wp-content from ' . $content_dir . '...' );
+            Mighty_Backup_Log_Stream::add( 'Archiving wp-content from ' . $content_dir . '...' );
             $this->stream_directory( $gz, $content_dir, 'wp-content', $exclusions, $visited_dirs );
 
             // End-of-archive: two consecutive 512-byte zero blocks.
@@ -206,7 +206,7 @@ class BM_Backup_File_Archiver {
         $source_dir = rtrim( $source_dir, '/' );
 
         if ( ! is_dir( $source_dir ) ) {
-            BM_Backup_Log_Stream::add( 'Directory not found, skipping: ' . $source_dir );
+            Mighty_Backup_Log_Stream::add( 'Directory not found, skipping: ' . $source_dir );
             return;
         }
 
@@ -233,7 +233,7 @@ class BM_Backup_File_Archiver {
                     $real = $file->getRealPath();
                     if ( $real !== false ) {
                         if ( isset( $visited_dirs[ $real ] ) ) {
-                            BM_Backup_Log_Stream::add( 'Skipped circular symlink: ' . $archive_path );
+                            Mighty_Backup_Log_Stream::add( 'Skipped circular symlink: ' . $archive_path );
                             return false;
                         }
                         $visited_dirs[ $real ] = true;
@@ -255,7 +255,7 @@ class BM_Backup_File_Archiver {
 
             // Skip paths that exceed ustar's 255-char limit (155 prefix + 100 name).
             if ( strlen( $archive_path ) > 255 ) {
-                BM_Backup_Log_Stream::add( 'Skipped (path too long): ' . substr( $archive_path, 0, 80 ) . '...' );
+                Mighty_Backup_Log_Stream::add( 'Skipped (path too long): ' . substr( $archive_path, 0, 80 ) . '...' );
                 continue;
             }
 
@@ -268,7 +268,7 @@ class BM_Backup_File_Archiver {
 
                 // Skip files > 8 GB (ustar size field is 11 octal digits = ~8 GB max).
                 if ( $size > 8589934591 ) {
-                    BM_Backup_Log_Stream::add( 'Skipped (> 8 GB): ' . $archive_path );
+                    Mighty_Backup_Log_Stream::add( 'Skipped (> 8 GB): ' . $archive_path );
                     continue;
                 }
 
@@ -299,7 +299,7 @@ class BM_Backup_File_Archiver {
      * Get the configured gzip compression level.
      */
     private function get_gzip_level(): int {
-        return max( 1, min( 9, (int) apply_filters( 'bm_backup_files_gzip_level', 3 ) ) );
+        return max( 1, min( 9, (int) apply_filters( 'mighty_backup_files_gzip_level', 3 ) ) );
     }
 
     /**

@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for BM_Backup_Settings — encryption and configuration validation.
+ * Tests for Mighty_Backup_Settings — encryption and configuration validation.
  */
 
 use Brain\Monkey;
@@ -28,7 +28,7 @@ class SettingsTest extends TestCase {
     }
 
     public function test_is_configured_returns_false_when_empty(): void {
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         $this->assertFalse( $settings->is_configured() );
     }
 
@@ -41,7 +41,7 @@ class SettingsTest extends TestCase {
             'client_path'           => 'clientname',
         ] );
 
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         $this->assertTrue( $settings->is_configured() );
     }
 
@@ -54,12 +54,12 @@ class SettingsTest extends TestCase {
             'client_path'           => 'clientname',
         ] );
 
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         $this->assertFalse( $settings->is_configured() );
     }
 
     public function test_encrypt_decrypt_round_trip(): void {
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
 
         $reflection = new ReflectionClass( $settings );
         $encrypt    = $reflection->getMethod( 'encrypt' );
@@ -75,7 +75,7 @@ class SettingsTest extends TestCase {
     }
 
     public function test_encrypt_produces_different_ciphertexts(): void {
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
 
         $reflection = new ReflectionClass( $settings );
         $encrypt    = $reflection->getMethod( 'encrypt' );
@@ -90,7 +90,7 @@ class SettingsTest extends TestCase {
     }
 
     public function test_decrypt_returns_empty_for_invalid_data(): void {
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
 
         $reflection = new ReflectionClass( $settings );
         $decrypt    = $reflection->getMethod( 'decrypt' );
@@ -101,12 +101,12 @@ class SettingsTest extends TestCase {
     }
 
     public function test_get_secret_key_returns_empty_when_not_set(): void {
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         $this->assertSame( '', $settings->get_secret_key() );
     }
 
     public function test_get_returns_default_when_key_missing(): void {
-        $settings = new BM_Backup_Settings();
+        $settings = new Mighty_Backup_Settings();
         $this->assertSame( 'daily', $settings->get( 'schedule_frequency' ) );
         $this->assertSame( '03:00', $settings->get( 'schedule_time' ) );
         $this->assertSame( 7, $settings->get( 'retention_count' ) );

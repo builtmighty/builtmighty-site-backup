@@ -12,13 +12,13 @@ use Aws\S3\MultipartUploader;
 use Aws\Exception\AwsException;
 use Aws\Exception\MultipartUploadException;
 
-class BM_Backup_Spaces_Client {
+class Mighty_Backup_Spaces_Client {
 
     private S3Client $client;
     private string $bucket;
     private string $client_path;
 
-    public function __construct( BM_Backup_Settings $settings ) {
+    public function __construct( Mighty_Backup_Settings $settings ) {
         $this->bucket      = $settings->get( 'spaces_bucket' );
         $this->client_path = rtrim( $settings->get( 'client_path' ), '/' );
 
@@ -72,11 +72,11 @@ class BM_Backup_Spaces_Client {
      */
     public function upload( string $local_path, string $remote_key ): string {
         $full_key    = $this->client_path . '/' . ltrim( $remote_key, '/' );
-        $max_retries = (int) apply_filters( 'bm_backup_upload_max_retries', 3 );
-        $part_size   = max( 5 * 1024 * 1024, (int) apply_filters( 'bm_backup_upload_part_size', 25 * 1024 * 1024 ) );
-        $concurrency = (int) apply_filters( 'bm_backup_upload_concurrency', 5 );
+        $max_retries = (int) apply_filters( 'mighty_backup_upload_max_retries', 3 );
+        $part_size   = max( 5 * 1024 * 1024, (int) apply_filters( 'mighty_backup_upload_part_size', 25 * 1024 * 1024 ) );
+        $concurrency = (int) apply_filters( 'mighty_backup_upload_concurrency', 5 );
 
-        BM_Backup_Log_Stream::add( 'Starting multipart upload: ' . $remote_key );
+        Mighty_Backup_Log_Stream::add( 'Starting multipart upload: ' . $remote_key );
 
         $uploader = new MultipartUploader( $this->client, $local_path, [
             'bucket'        => $this->bucket,
@@ -93,7 +93,7 @@ class BM_Backup_Spaces_Client {
             $attempt++;
             try {
                 $uploader->upload();
-                BM_Backup_Log_Stream::add( 'Upload complete: ' . $remote_key );
+                Mighty_Backup_Log_Stream::add( 'Upload complete: ' . $remote_key );
                 return $full_key;
             } catch ( MultipartUploadException $e ) {
                 if ( $attempt >= $max_retries ) {
@@ -101,7 +101,7 @@ class BM_Backup_Spaces_Client {
                         sprintf( 'Upload failed after %d attempts: %s', $max_retries, $e->getMessage() )
                     );
                 }
-                BM_Backup_Log_Stream::add( 'Upload attempt ' . $attempt . ' failed, retrying...' );
+                Mighty_Backup_Log_Stream::add( 'Upload attempt ' . $attempt . ' failed, retrying...' );
                 // Resume from where we left off.
                 $uploader = new MultipartUploader( $this->client, $local_path, [
                     'state' => $e->getState(),

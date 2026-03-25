@@ -13,8 +13,8 @@
     // --- Tabs ---
 
     function initTabs() {
-        var saved = localStorage.getItem('bm_backup_active_tab');
-        if (saved && $('.bm-tab-panel[data-tab="' + saved + '"]').length) {
+        var saved = localStorage.getItem('mighty_backup_active_tab');
+        if (saved && $('.mb-tab-panel[data-tab="' + saved + '"]').length) {
             switchTab(saved);
         }
     }
@@ -22,9 +22,9 @@
     function switchTab(tab) {
         $('.nav-tab-wrapper .nav-tab').removeClass('nav-tab-active');
         $('.nav-tab-wrapper .nav-tab[data-tab="' + tab + '"]').addClass('nav-tab-active');
-        $('.bm-tab-panel').removeClass('active');
-        $('.bm-tab-panel[data-tab="' + tab + '"]').addClass('active');
-        localStorage.setItem('bm_backup_active_tab', tab);
+        $('.mb-tab-panel').removeClass('active');
+        $('.mb-tab-panel[data-tab="' + tab + '"]').addClass('active');
+        localStorage.setItem('mighty_backup_active_tab', tab);
     }
 
     $('.nav-tab-wrapper .nav-tab').on('click', function (e) {
@@ -36,29 +36,29 @@
 
     var modalResolve = null;
 
-    function bmConfirm(message) {
+    function mbConfirm(message) {
         return new Promise(function (resolve) {
             modalResolve = resolve;
-            $('#bm-modal-message').text(message);
-            $('#bm-modal').show();
+            $('#mb-modal-message').text(message);
+            $('#mb-modal').show();
         });
     }
 
-    $('#bm-modal-confirm').on('click', function () {
-        $('#bm-modal').hide();
+    $('#mb-modal-confirm').on('click', function () {
+        $('#mb-modal').hide();
         if (modalResolve) modalResolve(true);
         modalResolve = null;
     });
 
-    $('#bm-modal-cancel').on('click', function () {
-        $('#bm-modal').hide();
+    $('#mb-modal-cancel').on('click', function () {
+        $('#mb-modal').hide();
         if (modalResolve) modalResolve(false);
         modalResolve = null;
     });
 
     $(document).on('keydown', function (e) {
-        if (e.key === 'Escape' && $('#bm-modal').is(':visible')) {
-            $('#bm-modal').hide();
+        if (e.key === 'Escape' && $('#mb-modal').is(':visible')) {
+            $('#mb-modal').hide();
             if (modalResolve) modalResolve(false);
             modalResolve = null;
         }
@@ -66,7 +66,7 @@
 
     // --- Show/Hide Password ---
 
-    $(document).on('click', '.bm-toggle-password', function () {
+    $(document).on('click', '.mb-toggle-password', function () {
         var $btn = $(this);
         var $input = $('#' + $btn.data('target'));
         if ($input.attr('type') === 'password') {
@@ -81,16 +81,16 @@
     // --- Inline Validation ---
 
     function showFieldError($input, message) {
-        var $error = $input.siblings('.bm-field-error');
+        var $error = $input.siblings('.mb-field-error');
         if (!$error.length) {
-            $error = $('<span class="bm-field-error"></span>');
+            $error = $('<span class="mb-field-error"></span>');
             $input.after($error);
         }
         $error.text(message);
     }
 
     function clearFieldError($input) {
-        $input.siblings('.bm-field-error').remove();
+        $input.siblings('.mb-field-error').remove();
     }
 
     $('#bm_spaces_endpoint').on('blur', function () {
@@ -122,23 +122,23 @@
 
     // --- Save Button Loading State ---
 
-    $('#bm-settings-form').on('submit', function () {
+    $('#mb-settings-form').on('submit', function () {
         var $btn = $(this).find(':submit');
-        $btn.val('Saving...').addClass('bm-saving');
+        $btn.val('Saving...').addClass('mb-saving');
     });
 
     // --- Test Connection ---
 
-    $('#bm-test-connection').on('click', function () {
+    $('#mb-test-connection').on('click', function () {
         var $btn = $(this);
-        var $result = $('#bm-test-result');
+        var $result = $('#mb-test-result');
 
         $btn.prop('disabled', true);
         $result.removeClass('success error').addClass('loading').text('Testing...');
 
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_test_connection',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_test_connection',
+            nonce: mightyBackup.nonce,
         })
         .done(function (response) {
             if (response.success) {
@@ -157,23 +157,23 @@
 
     // --- Cancel Backup ---
 
-    $('#bm-cancel-backup').on('click', function () {
+    $('#mb-cancel-backup').on('click', function () {
         var $btn = $(this);
 
-        bmConfirm('Cancel the running backup?').then(function (confirmed) {
+        mbConfirm('Cancel the running backup?').then(function (confirmed) {
             if (!confirmed) return;
 
             $btn.prop('disabled', true);
 
-            $.post(bmBackup.ajaxUrl, {
-                action: 'bm_backup_cancel',
-                nonce: bmBackup.nonce,
+            $.post(mightyBackup.ajaxUrl, {
+                action: 'mighty_backup_cancel',
+                nonce: mightyBackup.nonce,
             })
             .done(function (response) {
                 stopPolling();
                 hideProgress();
                 $btn.hide();
-                $('#bm-run-backup').removeClass('running').prop('disabled', false);
+                $('#mb-run-backup').removeClass('running').prop('disabled', false);
                 if (response.success) {
                     showResult('success', response.data.message || 'Backup cancelled.');
                     autoDismissResult(4000);
@@ -192,19 +192,19 @@
 
     // --- Run Backup Now ---
 
-    $('#bm-run-backup').on('click', function () {
+    $('#mb-run-backup').on('click', function () {
         var $btn = $(this);
 
-        bmConfirm('Start a full backup now? This runs in the background and may take 30+ minutes depending on site size.').then(function (confirmed) {
+        mbConfirm('Start a full backup now? This runs in the background and may take 30+ minutes depending on site size.').then(function (confirmed) {
             if (!confirmed) return;
 
             $btn.addClass('running').prop('disabled', true);
             showResult('loading', '');
             showProgress('Scheduling backup...', 0, '');
 
-            $.post(bmBackup.ajaxUrl, {
-                action: 'bm_backup_run_now',
-                nonce: bmBackup.nonce,
+            $.post(mightyBackup.ajaxUrl, {
+                action: 'mighty_backup_run_now',
+                nonce: mightyBackup.nonce,
             })
             .done(function (response) {
                 if (response.success) {
@@ -247,13 +247,13 @@
             stopPolling();
             hideProgress();
             showResult('error', 'Backup may be stuck — check the server or try cancelling.');
-            $('#bm-run-backup').removeClass('running').prop('disabled', false);
+            $('#mb-run-backup').removeClass('running').prop('disabled', false);
             return;
         }
 
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_check_status',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_check_status',
+            nonce: mightyBackup.nonce,
             since: lastLogIndex,
         }).done(function (response) {
             if (!response.success) return;
@@ -270,7 +270,7 @@
 
             if (!s.active) {
                 stopPolling();
-                $('#bm-cancel-backup').hide().prop('disabled', false);
+                $('#mb-cancel-backup').hide().prop('disabled', false);
 
                 if (s.status === 'completed') {
                     hideProgress();
@@ -285,118 +285,118 @@
                     hideProgress();
                     showResult('error', 'Backup failed: ' + (s.error || 'Unknown error'));
                     dismissStatus();
-                    $('#bm-run-backup').removeClass('running').prop('disabled', false);
+                    $('#mb-run-backup').removeClass('running').prop('disabled', false);
 
                 } else {
                     hideProgress();
                     showResult('', '');
-                    $('#bm-run-backup').removeClass('running').prop('disabled', false);
+                    $('#mb-run-backup').removeClass('running').prop('disabled', false);
                 }
                 return;
             }
 
             // Still active.
-            $('#bm-cancel-backup').show();
+            $('#mb-cancel-backup').show();
             showProgress(s.message || 'Running...', s.progress || 0, s.step || '');
         });
     }
 
     function dismissStatus() {
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_dismiss_status',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_dismiss_status',
+            nonce: mightyBackup.nonce,
         });
     }
 
     // --- Progress Bar + Step Indicators ---
 
     function buildStepsHtml() {
-        var html = '<div class="bm-steps">';
+        var html = '<div class="mb-steps">';
         for (var i = 0; i < stepLabels.length; i++) {
-            html += '<span class="bm-step" data-step="' + stepKeys[i] + '">' + stepLabels[i] + '</span>';
+            html += '<span class="mb-step" data-step="' + stepKeys[i] + '">' + stepLabels[i] + '</span>';
         }
         html += '</div>';
         return html;
     }
 
     function showProgress(text, percent, currentStep) {
-        var $box = $('#bm-progress-box');
+        var $box = $('#mb-progress-box');
         if (!$box.length) {
-            $('#bm-run-backup').after(
-                '<div id="bm-progress-box" class="bm-progress-box">' +
+            $('#mb-run-backup').after(
+                '<div id="mb-progress-box" class="mb-progress-box">' +
                 buildStepsHtml() +
-                '  <div class="bm-progress-bar-wrap"' +
+                '  <div class="mb-progress-bar-wrap"' +
                 '       role="progressbar" aria-label="Backup progress"' +
                 '       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">' +
-                '    <div class="bm-progress-bar"></div>' +
+                '    <div class="mb-progress-bar"></div>' +
                 '  </div>' +
-                '  <span class="bm-progress-text" aria-live="polite"></span>' +
+                '  <span class="mb-progress-text" aria-live="polite"></span>' +
                 '</div>'
             );
-            $box = $('#bm-progress-box');
+            $box = $('#mb-progress-box');
         }
         $box.show();
-        $box.find('.bm-progress-text').text(text);
+        $box.find('.mb-progress-text').text(text);
 
         if (typeof percent === 'number' && percent > 0) {
-            $box.find('.bm-progress-bar').css('width', percent + '%');
-            $box.find('.bm-progress-bar-wrap').attr('aria-valuenow', percent);
+            $box.find('.mb-progress-bar').css('width', percent + '%');
+            $box.find('.mb-progress-bar-wrap').attr('aria-valuenow', percent);
         }
 
         // Update step indicators.
         if (currentStep) {
             var activeIndex = stepKeys.indexOf(currentStep);
-            $box.find('.bm-step').each(function (i) {
+            $box.find('.mb-step').each(function (i) {
                 var $step = $(this);
-                $step.removeClass('bm-step-active bm-step-done');
+                $step.removeClass('mb-step-active mb-step-done');
                 if (i < activeIndex) {
-                    $step.addClass('bm-step-done');
+                    $step.addClass('mb-step-done');
                 } else if (i === activeIndex) {
-                    $step.addClass('bm-step-active');
+                    $step.addClass('mb-step-active');
                 }
             });
         }
     }
 
     function hideProgress() {
-        var $box = $('#bm-progress-box');
+        var $box = $('#mb-progress-box');
         $box.hide();
-        $box.find('.bm-progress-bar-wrap').attr('aria-valuenow', 0);
-        $box.find('.bm-progress-bar').css('width', '0');
-        $box.find('.bm-step').removeClass('bm-step-active bm-step-done');
-        $box.find('.bm-log-box').empty();
+        $box.find('.mb-progress-bar-wrap').attr('aria-valuenow', 0);
+        $box.find('.mb-progress-bar').css('width', '0');
+        $box.find('.mb-step').removeClass('mb-step-active mb-step-done');
+        $box.find('.mb-log-box').empty();
         lastLogIndex = 0;
     }
 
     // --- Live Log Box ---
 
     function ensureLogBox() {
-        var $box = $('#bm-progress-box');
-        if (!$box.find('.bm-log-box').length) {
+        var $box = $('#mb-progress-box');
+        if (!$box.find('.mb-log-box').length) {
             $box.append(
-                '<div class="bm-log-wrap">' +
-                '  <div class="bm-log-header">' +
-                '    <span class="bm-log-title">Live Log</span>' +
-                '    <button type="button" class="bm-log-toggle">Collapse</button>' +
+                '<div class="mb-log-wrap">' +
+                '  <div class="mb-log-header">' +
+                '    <span class="mb-log-title">Live Log</span>' +
+                '    <button type="button" class="mb-log-toggle">Collapse</button>' +
                 '  </div>' +
-                '  <div class="bm-log-box" aria-live="polite" role="log"></div>' +
+                '  <div class="mb-log-box" aria-live="polite" role="log"></div>' +
                 '</div>'
             );
         }
     }
 
     function appendLogEntries(entries) {
-        var $box = $('#bm-progress-box');
+        var $box = $('#mb-progress-box');
         if (!$box.length) return;
 
         ensureLogBox();
-        var $logBox = $box.find('.bm-log-box');
+        var $logBox = $box.find('.mb-log-box');
 
         for (var i = 0; i < entries.length; i++) {
             var entry = entries[i];
-            var $line = $('<div class="bm-log-line">')
-                .append($('<span class="bm-log-time">').text(entry.time))
-                .append($('<span class="bm-log-message">').text(entry.message));
+            var $line = $('<div class="mb-log-line">')
+                .append($('<span class="mb-log-time">').text(entry.time))
+                .append($('<span class="mb-log-message">').text(entry.message));
             $logBox.append($line);
         }
 
@@ -404,9 +404,9 @@
         $logBox.scrollTop($logBox[0].scrollHeight);
     }
 
-    $(document).on('click', '.bm-log-toggle', function () {
-        var $wrap = $(this).closest('.bm-log-wrap');
-        var $logBox = $wrap.find('.bm-log-box');
+    $(document).on('click', '.mb-log-toggle', function () {
+        var $wrap = $(this).closest('.mb-log-wrap');
+        var $logBox = $wrap.find('.mb-log-box');
         if ($logBox.is(':visible')) {
             $logBox.slideUp(200);
             $(this).text('Expand');
@@ -420,7 +420,7 @@
     // --- Result Messages ---
 
     function showResult(type, message) {
-        var $el = $('#bm-backup-result');
+        var $el = $('#mb-backup-result');
         $el.removeClass('success error loading');
         if (type) $el.addClass(type);
         $el.text(message);
@@ -441,24 +441,24 @@
 
     // --- Generate / Regenerate API Key ---
 
-    $('#bm-generate-key').on('click', function () {
+    $('#mb-generate-key').on('click', function () {
         var $btn = $(this);
-        var $result = $('#bm-key-result');
+        var $result = $('#mb-key-result');
 
-        bmConfirm('Generate a new Codespace bootstrap key? This will invalidate any existing key.').then(function (confirmed) {
+        mbConfirm('Generate a new Codespace bootstrap key? This will invalidate any existing key.').then(function (confirmed) {
             if (!confirmed) return;
 
             $btn.prop('disabled', true);
             $result.removeClass('success error').addClass('loading').text('Generating...');
 
-            $.post(bmBackup.ajaxUrl, {
-                action: 'bm_backup_generate_api_key',
-                nonce: bmBackup.nonce,
+            $.post(mightyBackup.ajaxUrl, {
+                action: 'mighty_backup_generate_api_key',
+                nonce: mightyBackup.nonce,
             })
             .done(function (response) {
                 if (response.success) {
                     var newKey = response.data.bootstrap_key;
-                    var $field = $('#bm-bootstrap-key');
+                    var $field = $('#mb-bootstrap-key');
                     if ($field.length) {
                         $field.val(newKey);
                         $btn.text('Regenerate Key');
@@ -482,7 +482,7 @@
 
     // --- Copy Bootstrap Key ---
 
-    $('#bm-copy-key').on('click', function () {
+    $('#mb-copy-key').on('click', function () {
         var $btn = $(this);
         var $field = $('#' + $btn.data('target'));
 
@@ -503,7 +503,7 @@
 
     // --- Download Backup ---
 
-    $(document).on('click', '.bm-download-link', function (e) {
+    $(document).on('click', '.mb-download-link', function (e) {
         e.preventDefault();
         var $link = $(this);
         var key = $link.data('key');
@@ -512,9 +512,9 @@
 
         $link.addClass('disabled').text('Loading...');
 
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_download',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_download',
+            nonce: mightyBackup.nonce,
             key: key,
         })
         .done(function (response) {
@@ -535,25 +535,25 @@
 
     // --- Expandable Error Messages ---
 
-    $(document).on('click', '.bm-error-toggle', function (e) {
+    $(document).on('click', '.mb-error-toggle', function (e) {
         e.preventDefault();
-        var $cell = $(this).closest('.bm-error-cell');
+        var $cell = $(this).closest('.mb-error-cell');
         $cell.toggleClass('expanded');
         $(this).text($cell.hasClass('expanded') ? 'Show less' : 'Show more');
     });
 
     // --- Exit Dev Mode ---
 
-    $('#bm-exit-dev-mode').on('click', function () {
+    $('#mb-exit-dev-mode').on('click', function () {
         var $btn = $(this);
-        var $result = $('#bm-dev-mode-result');
+        var $result = $('#mb-dev-mode-result');
 
         $btn.prop('disabled', true).text('Enabling...');
         $result.removeClass('success error').text('');
 
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_exit_dev_mode',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_exit_dev_mode',
+            nonce: mightyBackup.nonce,
         })
         .done(function (response) {
             if (response.success) {
@@ -572,19 +572,19 @@
 
     // --- Devcontainer: Check Version ---
 
-    $('#bm-devcontainer-check').on('click', function () {
+    $('#mb-devcontainer-check').on('click', function () {
         var $btn = $(this);
-        var $status = $('#bm-devcontainer-status');
-        var $updateSection = $('#bm-devcontainer-update-section');
-        var $versionInfo = $('#bm-devcontainer-version-info');
+        var $status = $('#mb-devcontainer-status');
+        var $updateSection = $('#mb-devcontainer-update-section');
+        var $versionInfo = $('#mb-devcontainer-version-info');
 
         $btn.prop('disabled', true);
         $status.removeClass('success error').addClass('loading').text('Checking...');
         $updateSection.hide();
 
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_devcontainer_check',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_devcontainer_check',
+            nonce: mightyBackup.nonce,
         })
         .done(function (response) {
             if (!response.success) {
@@ -621,19 +621,19 @@
 
     // --- Devcontainer: Install / Update ---
 
-    $('#bm-devcontainer-update').on('click', function () {
+    $('#mb-devcontainer-update').on('click', function () {
         var $btn = $(this);
-        var $result = $('#bm-devcontainer-update-result');
+        var $result = $('#mb-devcontainer-update-result');
 
-        bmConfirm('Create a PR to update .devcontainer to the latest version?').then(function (confirmed) {
+        mbConfirm('Create a PR to update .devcontainer to the latest version?').then(function (confirmed) {
             if (!confirmed) return;
 
             $btn.prop('disabled', true);
             $result.removeClass('success error').addClass('loading').text('Creating PR...');
 
-            $.post(bmBackup.ajaxUrl, {
-                action: 'bm_backup_devcontainer_update',
-                nonce: bmBackup.nonce,
+            $.post(mightyBackup.ajaxUrl, {
+                action: 'mighty_backup_devcontainer_update',
+                nonce: mightyBackup.nonce,
             })
             .done(function (response) {
                 if (response.success) {
@@ -655,12 +655,12 @@
     // --- Day-of-Week Smooth Toggle ---
 
     $('#bm_schedule_frequency').on('change', function () {
-        var $row = $('#bm-schedule-day-row');
+        var $row = $('#mb-schedule-day-row');
         if ($(this).val() === 'weekly') {
-            $row.removeClass('bm-hidden').slideDown(200);
+            $row.removeClass('mb-hidden').slideDown(200);
         } else {
             $row.slideUp(200, function () {
-                $row.addClass('bm-hidden');
+                $row.addClass('mb-hidden');
             });
         }
     });
@@ -670,16 +670,16 @@
     $(document).ready(function () {
         initTabs();
 
-        $.post(bmBackup.ajaxUrl, {
-            action: 'bm_backup_check_status',
-            nonce: bmBackup.nonce,
+        $.post(mightyBackup.ajaxUrl, {
+            action: 'mighty_backup_check_status',
+            nonce: mightyBackup.nonce,
             since: 0,
         }).done(function (response) {
             if (response.success && response.data.active) {
                 // Switch to backup tab if a backup is running.
                 switchTab('backup');
-                $('#bm-run-backup').addClass('running').prop('disabled', true);
-                $('#bm-cancel-backup').show();
+                $('#mb-run-backup').addClass('running').prop('disabled', true);
+                $('#mb-cancel-backup').show();
                 showProgress(response.data.message, response.data.progress, response.data.step);
 
                 // Load existing log entries.

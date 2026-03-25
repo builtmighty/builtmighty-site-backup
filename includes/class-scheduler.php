@@ -7,9 +7,9 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-class BM_Backup_Scheduler {
+class Mighty_Backup_Scheduler {
 
-    private const CRON_HOOK = 'bm_backup_scheduled';
+    private const CRON_HOOK = 'mighty_backup_scheduled';
 
     /**
      * Hook into WordPress to listen for the cron event.
@@ -29,7 +29,7 @@ class BM_Backup_Scheduler {
                 return;
             }
 
-            $settings  = new BM_Backup_Settings();
+            $settings  = new Mighty_Backup_Settings();
             $frequency = $settings->get( 'schedule_frequency', 'daily' );
             $time      = $settings->get( 'schedule_time', '03:00' );
 
@@ -83,16 +83,16 @@ class BM_Backup_Scheduler {
         }
 
         // Dev mode: skip scheduled backups when the site URL has changed.
-        if ( BM_Backup_Dev_Mode::is_dev_mode() ) {
-            error_log( 'BM Site Backup: Scheduled backup skipped — dev mode active (site URL mismatch).' );
+        if ( Mighty_Backup_Dev_Mode::is_dev_mode() ) {
+            error_log( 'Mighty Backup: Scheduled backup skipped — dev mode active (site URL mismatch).' );
             return;
         }
 
         try {
-            $manager = new BM_Backup_Manager();
+            $manager = new Mighty_Backup_Manager();
             $manager->schedule( 'full', 'scheduled' );
         } catch ( \Exception $e ) {
-            error_log( 'BM Site Backup: Failed to schedule backup — ' . $e->getMessage() );
+            error_log( 'Mighty Backup: Failed to schedule backup — ' . $e->getMessage() );
         }
     }
 
