@@ -439,6 +439,38 @@
         }, ms || 4000);
     }
 
+    // --- Check API Health ---
+
+    $('#mb-check-api').on('click', function () {
+        var $btn = $(this);
+        var $result = $('#mb-api-check-result');
+
+        $btn.prop('disabled', true);
+        $result.removeClass('success error').addClass('loading').text('Checking...');
+
+        $.ajax({
+            url: mightyBackup.restUrl + 'mighty-backup/v1/check',
+            method: 'GET',
+            dataType: 'json',
+            timeout: 10000,
+        })
+        .done(function (data) {
+            if (data && data.status === 'ok') {
+                showResultTimed($result, 'success', 'API reachable \u2014 v' + data.version, 6000);
+            } else {
+                $result.removeClass('loading').addClass('error').text('Unexpected response.');
+            }
+        })
+        .fail(function (xhr) {
+            var msg = 'API not reachable';
+            if (xhr.status) msg += ' (HTTP ' + xhr.status + ')';
+            $result.removeClass('loading').addClass('error').text(msg);
+        })
+        .always(function () {
+            $btn.prop('disabled', false);
+        });
+    });
+
     // --- Generate / Regenerate API Key ---
 
     $('#mb-generate-key').on('click', function () {

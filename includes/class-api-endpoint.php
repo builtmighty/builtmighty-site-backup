@@ -17,6 +17,7 @@ class Mighty_Backup_Api_Endpoint {
 
 	const ROUTE_NAMESPACE = 'mighty-backup/v1';
 	const ROUTE           = '/codespace-config';
+	const ROUTE_CHECK     = '/check';
 	const API_KEY_OPTION  = 'bm_backup_api_key';
 	const RATE_LIMIT      = 10; // max requests per window
 	const RATE_WINDOW     = 60; // seconds
@@ -39,6 +40,16 @@ class Mighty_Backup_Api_Endpoint {
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => [ $this, 'handle_request' ],
 				'permission_callback' => '__return_true', // Auth handled inside callback.
+			]
+		);
+
+		register_rest_route(
+			self::ROUTE_NAMESPACE,
+			self::ROUTE_CHECK,
+			[
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'handle_check' ],
+				'permission_callback' => '__return_true',
 			]
 		);
 	}
@@ -105,6 +116,18 @@ class Mighty_Backup_Api_Endpoint {
 		];
 
 		return new WP_REST_Response( $data, 200 );
+	}
+
+	/**
+	 * Handle the health-check request — public, no auth required.
+	 */
+	public function handle_check( WP_REST_Request $request ): WP_REST_Response {
+		return new WP_REST_Response( [
+			'status'    => 'ok',
+			'plugin'    => 'mighty-backup',
+			'version'   => defined( 'MIGHTY_BACKUP_VERSION' ) ? MIGHTY_BACKUP_VERSION : 'unknown',
+			'timestamp' => time(),
+		], 200 );
 	}
 
 	/**

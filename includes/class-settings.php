@@ -104,6 +104,7 @@ class Mighty_Backup_Settings {
         wp_localize_script( 'mighty-backup-admin', 'mightyBackup', [
             'ajaxUrl' => admin_url( 'admin-ajax.php' ),
             'nonce'   => wp_create_nonce( 'mighty_backup_nonce' ),
+            'restUrl' => esc_url_raw( rest_url() ),
         ] );
     }
 

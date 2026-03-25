@@ -484,6 +484,21 @@ $recent    = $logger->get_recent( 20 );
 
     <!-- Codespace Tab -->
     <div class="mb-tab-panel" data-tab="codespace">
+        <h2><?php esc_html_e( 'API Health Check', 'mighty-backup' ); ?></h2>
+        <p class="description"><?php esc_html_e( 'Verify that the REST API endpoints are reachable.', 'mighty-backup' ); ?></p>
+        <table class="form-table">
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Endpoint Status', 'mighty-backup' ); ?></th>
+                <td>
+                    <button type="button" id="mb-check-api" class="button button-secondary">
+                        <?php esc_html_e( 'Check API Health', 'mighty-backup' ); ?>
+                    </button>
+                    <span id="mb-api-check-result" class="mb-result-message" aria-live="polite"></span>
+                </td>
+            </tr>
+        </table>
+        <hr />
+
         <h2><?php esc_html_e( 'Codespace Bootstrap Key', 'mighty-backup' ); ?></h2>
         <p><?php esc_html_e( 'The bootstrap key encodes this site\'s URL and a secure API key into a single value. Add it as the ', 'mighty-backup' ); ?><code>BM_BOOTSTRAP_KEY</code><?php esc_html_e( ' Codespace secret and the migration pipeline will automatically retrieve all DigitalOcean credentials from this plugin — no need to manage them as separate secrets.', 'mighty-backup' ); ?></p>
 
