@@ -30,6 +30,8 @@ class Mighty_Devcontainer_Manager {
 	public function init(): void {
 		add_action( 'wp_ajax_mighty_backup_devcontainer_check', [ $this, 'ajax_check_version' ] );
 		add_action( 'wp_ajax_mighty_backup_devcontainer_update', [ $this, 'ajax_install_or_update' ] );
+		add_action( 'admin_notices', [ $this, 'maybe_show_size_warning' ] );
+		add_action( 'network_admin_notices', [ $this, 'maybe_show_size_warning' ] );
 	}
 
 	/**
@@ -74,6 +76,43 @@ class Mighty_Devcontainer_Manager {
 		} catch ( \Exception $e ) {
 			wp_send_json_error( $e->getMessage() );
 		}
+	}
+
+	/**
+	 * Show an admin warning on the settings page when the site exceeds 128 GB.
+	 */
+	public function maybe_show_size_warning(): void {
+		// Only show on the Mighty Backup settings page.
+		if ( ! isset( $_GET['page'] ) || $_GET['page'] !== 'mighty-backup' ) {
+			return;
+		}
+
+		if ( ! $this->is_authorized_user() ) {
+			return;
+		}
+
+		$disk_size = get_transient( 'mighty_backup_site_disk_size' );
+
+		if ( $disk_size === false ) {
+			return; // No cached size yet — will be computed on next devcontainer update.
+		}
+
+		$disk_size = (int) $disk_size;
+		$max_bytes = 128 * 1024 * 1024 * 1024; // 128 GB.
+
+		if ( $disk_size <= $max_bytes ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-warning"><p><strong>%s</strong> &mdash; %s</p></div>',
+			esc_html__( 'Mighty Backup: Site Too Large for Codespaces', 'mighty-backup' ),
+			sprintf(
+				/* translators: %s: human-readable site size */
+				esc_html__( 'This site is %s (excluding uploads), which exceeds the 128 GB GitHub Codespace limit. The devcontainer has been configured with the maximum resources, but the Codespace may not have enough disk space.', 'mighty-backup' ),
+				esc_html( size_format( $disk_size ) )
+			)
+		);
 	}
 
 	/**
@@ -189,10 +228,17 @@ class Mighty_Devcontainer_Manager {
 		);
 		$global_tree = $global_tree_data['tree'];
 
-		// 6. Build the new tree entries.
+		// 6. Calculate site disk size and determine Codespace tier.
+		$disk_size = $this->calculate_site_disk_size();
+		$tier      = $this->get_codespace_tier( $disk_size );
+
+		// Cache for the admin warning notice.
+		set_transient( 'mighty_backup_site_disk_size', $disk_size, DAY_IN_SECONDS );
+
+		// 7. Build the new tree entries.
 		$tree_items = [];
 
-		// 6a. Collect existing .devcontainer/setup/* entries from the repo (preserve them).
+		// 7a. Collect existing .devcontainer/setup/* entries from the repo (preserve them).
 		$repo_setup_entries = [];
 		foreach ( $repo_tree as $entry ) {
 			if ( $entry['type'] === 'blob' && str_starts_with( $entry['path'], '.devcontainer/setup/' ) ) {
@@ -206,7 +252,7 @@ class Mighty_Devcontainer_Manager {
 			}
 		}
 
-		// 6b. Add all global template entries EXCEPT setup/*.
+		// 7b. Add all global template entries EXCEPT setup/*.
 		$global_paths = [];
 		foreach ( $global_tree as $entry ) {
 			if ( $entry['type'] !== 'blob' ) {
@@ -219,7 +265,13 @@ class Mighty_Devcontainer_Manager {
 				continue;
 			}
 			$global_paths[ $entry['path'] ] = true;
-			$new_sha = $this->copy_blob_to_repo( $entry['sha'], $owner, $repo );
+
+			// Inject hostRequirements into devcontainer.json based on site disk size.
+			if ( $entry['path'] === '.devcontainer/devcontainer.json' ) {
+				$new_sha = $this->copy_blob_with_host_requirements( $entry['sha'], $owner, $repo, $tier );
+			} else {
+				$new_sha = $this->copy_blob_to_repo( $entry['sha'], $owner, $repo );
+			}
 			$tree_items[] = [
 				'path' => $entry['path'],
 				'mode' => $entry['mode'],
@@ -228,7 +280,7 @@ class Mighty_Devcontainer_Manager {
 			];
 		}
 
-		// 6c. Delete repo .devcontainer/* entries that are not in the global template
+		// 7c. Delete repo .devcontainer/* entries that are not in the global template
 		//     and not in setup/ (they should be removed).
 		foreach ( $repo_tree as $entry ) {
 			if ( $entry['type'] !== 'blob' ) {
@@ -252,7 +304,7 @@ class Mighty_Devcontainer_Manager {
 			];
 		}
 
-		// 7. Create the new tree using base_tree so non-.devcontainer files are preserved.
+		// 8. Create the new tree using base_tree so non-.devcontainer files are preserved.
 		$new_tree = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/trees',
 			[
@@ -261,7 +313,7 @@ class Mighty_Devcontainer_Manager {
 			]
 		);
 
-		// 8. Create a commit on the new branch.
+		// 9. Create a commit on the new branch.
 		$commit_message = 'Update .devcontainer to v' . $latest;
 		$new_commit     = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/commits',
@@ -272,17 +324,27 @@ class Mighty_Devcontainer_Manager {
 			]
 		);
 
-		// 9. Point the branch to the new commit.
+		// 10. Point the branch to the new commit.
 		$this->api_patch(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs/heads/' . $branch_name,
 			[ 'sha' => $new_commit['sha'] ]
 		);
 
-		// 10. Create the pull request.
+		// 11. Create the pull request.
 		$pr_body = "Updates the `.devcontainer` configuration to **v{$latest}** from the global template.\n\n"
 			. "- `.devcontainer/setup/` has been preserved.\n"
-			. "- All other `.devcontainer/` files have been replaced with the latest template.\n\n"
-			. "Created by **Mighty Backup** plugin.";
+			. "- All other `.devcontainer/` files have been replaced with the latest template.\n";
+
+		if ( $disk_size > 0 ) {
+			$human_size = size_format( $disk_size );
+			if ( $tier ) {
+				$pr_body .= "- Configured for **{$tier['cpus']}-core** Codespace (**{$tier['storage']}** disk). Site size: {$human_size}.\n";
+			} else {
+				$pr_body .= "- **Warning:** Site size is {$human_size} (excluding uploads), which exceeds the 128 GB Codespace limit. Configured with maximum resources (16 cpus, 128 GB).\n";
+			}
+		}
+
+		$pr_body .= "\nCreated by **Mighty Backup** plugin.";
 
 		$pr = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/pulls',
@@ -338,6 +400,121 @@ class Mighty_Devcontainer_Manager {
 		);
 
 		return $new_blob['sha'];
+	}
+
+	/**
+	 * Copy the devcontainer.json blob, injecting hostRequirements based on site size.
+	 *
+	 * @param string     $sha   Blob SHA in the global template repo.
+	 * @param string     $owner Target repo owner.
+	 * @param string     $repo  Target repo name.
+	 * @param array|null $tier  Codespace tier from get_codespace_tier().
+	 * @return string The new blob SHA in the target repo.
+	 */
+	private function copy_blob_with_host_requirements( string $sha, string $owner, string $repo, ?array $tier ): string {
+		$blob = $this->api_get(
+			self::API_BASE . '/repos/' . self::GLOBAL_OWNER . '/' . self::GLOBAL_REPO
+				. '/git/blobs/' . $sha
+		);
+
+		$content = base64_decode( $blob['content'] ?? '' );
+		if ( empty( $content ) ) {
+			// Fallback: copy as-is if we can't decode.
+			return $this->copy_blob_to_repo( $sha, $owner, $repo );
+		}
+
+		// Strip JS-style single-line comments before parsing.
+		$stripped = preg_replace( '#^\s*//.*$#m', '', $content );
+		$json     = json_decode( $stripped, true );
+
+		if ( ! is_array( $json ) ) {
+			// Fallback: copy as-is if JSON is invalid.
+			return $this->copy_blob_to_repo( $sha, $owner, $repo );
+		}
+
+		// Use the provided tier, or max tier as fallback for >128 GB sites.
+		$host_tier = $tier ?? [ 'cpus' => 16, 'storage' => '128gb' ];
+
+		$json['hostRequirements'] = [
+			'cpus'    => $host_tier['cpus'],
+			'storage' => $host_tier['storage'],
+		];
+
+		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+
+		$new_blob = $this->api_post(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/blobs',
+			[
+				'content'  => base64_encode( $new_content ),
+				'encoding' => 'base64',
+			]
+		);
+
+		return $new_blob['sha'];
+	}
+
+	/**
+	 * Calculate the total disk size of the site, excluding the uploads directory.
+	 *
+	 * @return int Size in bytes, or 0 if the calculation fails.
+	 */
+	private function calculate_site_disk_size(): int {
+		try {
+			$root       = rtrim( ABSPATH, '/' );
+			$upload_dir = wp_upload_dir( null, false );
+			$uploads    = isset( $upload_dir['basedir'] ) ? rtrim( $upload_dir['basedir'], '/' ) : '';
+
+			$total = 0;
+
+			$iterator = new \RecursiveDirectoryIterator(
+				$root,
+				\RecursiveDirectoryIterator::SKIP_DOTS
+			);
+
+			$files = new \RecursiveIteratorIterator(
+				$iterator,
+				\RecursiveIteratorIterator::LEAVES_ONLY
+			);
+
+			foreach ( $files as $file ) {
+				if ( ! $file->isFile() ) {
+					continue;
+				}
+
+				// Exclude the uploads directory.
+				if ( ! empty( $uploads ) && str_starts_with( $file->getPathname(), $uploads ) ) {
+					continue;
+				}
+
+				$total += $file->getSize();
+			}
+
+			return $total;
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+	}
+
+	/**
+	 * Map a disk size in bytes to a GitHub Codespace tier.
+	 *
+	 * @param int $disk_bytes Site disk size in bytes.
+	 * @return array{cpus: int, storage: string}|null Tier info, or null if the site exceeds 128 GB.
+	 */
+	private function get_codespace_tier( int $disk_bytes ): ?array {
+		$gb = 1024 * 1024 * 1024;
+
+		if ( $disk_bytes <= 32 * $gb ) {
+			return [ 'cpus' => 4, 'storage' => '32gb' ];
+		}
+		if ( $disk_bytes <= 64 * $gb ) {
+			return [ 'cpus' => 8, 'storage' => '64gb' ];
+		}
+		if ( $disk_bytes <= 128 * $gb ) {
+			return [ 'cpus' => 16, 'storage' => '128gb' ];
+		}
+
+		return null;
 	}
 
 	/**
