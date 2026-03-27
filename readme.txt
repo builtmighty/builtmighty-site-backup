@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.2.0
+Stable tag: 2.3.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,11 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.3.0 =
+* Devcontainer updates now set hostRequirements (cpus/storage) in devcontainer.json based on site disk size (excluding uploads)
+* Added admin warning notice on settings page when site exceeds the 128 GB GitHub Codespace limit
+* PR body now includes Codespace tier and site size information
 
 = 2.2.0 =
 * Renamed plugin label to "MightyBackup" across admin menu and settings page

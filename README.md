@@ -27,7 +27,7 @@ wp plugin install https://github.com/builtmighty/mighty-backup/releases/latest/d
 - **Email notifications** — alerts on backup failure
 - **Dev Mode detection** — prevents dev/staging sites from overwriting production backups
 - **Codespace integration** — REST API endpoint and bootstrap key for the pipeline
-- **Devcontainer management** — check and update .devcontainer config via GitHub API
+- **Devcontainer management** — check and update .devcontainer config via GitHub API with automatic Codespace tier sizing based on site disk usage
 - **WP-CLI support** — full command-line interface with timeout control
 - **Automatic updates** — auto-updates from GitHub releases via built-in update checker
 - **Pressable & managed hosting compatible** — handles split ABSPATH/WP_CONTENT_DIR, follows symlinked plugins, secure mysqldump via defaults file
