@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.4.0
+Stable tag: 2.5.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,11 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.5.0 =
+* Fixed backups hanging at "waiting for background processing" in both admin UI and WP-CLI
+* Backup actions are now processed directly during status polling, removing dependency on WP-Cron and Action Scheduler's async dispatcher
+* Prevents stale Action Scheduler claims from blocking backup execution
 
 = 2.4.0 =
 * Chunked database export — PHP-based DB exports now split across multiple Action Scheduler actions for reliable large database backups

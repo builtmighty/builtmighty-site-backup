@@ -420,7 +420,13 @@ class Mighty_Backup_Settings {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $manager   = new Mighty_Backup_Manager();
+        $manager = new Mighty_Backup_Manager();
+
+        // Process the next pending backup action during each status poll.
+        // This ensures the backup progresses even when WP-Cron or the
+        // Action Scheduler async dispatcher aren't firing.
+        $manager->process_next_action();
+
         $log_since = isset( $_POST['since'] ) ? absint( $_POST['since'] ) : 0;
         wp_send_json_success( $manager->get_status( $log_since ) );
     }

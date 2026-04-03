@@ -79,10 +79,8 @@ class Mighty_Backup_CLI_Command {
 
                 sleep( 2 );
 
-                // Process any pending Action Scheduler actions.
-                if ( class_exists( 'ActionScheduler_QueueRunner' ) ) {
-                    ActionScheduler_QueueRunner::instance()->run();
-                }
+                // Directly process the next pending backup action.
+                $manager->process_next_action();
 
                 $status = $manager->get_status();
 

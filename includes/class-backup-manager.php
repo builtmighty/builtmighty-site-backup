@@ -603,6 +603,34 @@ class Mighty_Backup_Manager {
     }
 
     /**
+     * Process the next pending backup action directly.
+     *
+     * Bypasses ActionScheduler_QueueRunner::run() which can be blocked by
+     * stale claims, concurrent batch limits, or time limits. This claims
+     * a single action from the 'mighty-backup' group, processes it, and
+     * releases the claim.
+     */
+    public function process_next_action(): void {
+        if ( ! class_exists( 'ActionScheduler_Store' ) ) {
+            return;
+        }
+
+        $store = \ActionScheduler_Store::instance();
+        $claim = $store->stake_claim( 1, null, [], self::ACTION_GROUP );
+
+        try {
+            foreach ( $claim->get_actions() as $action_id ) {
+                \ActionScheduler_QueueRunner::instance()->process_action( $action_id, 'Mighty Backup' );
+            }
+        } catch ( \Exception $e ) {
+            // Action-level errors are handled inside each step's try/catch.
+            // This guard is for unexpected exceptions to ensure claim release.
+        } finally {
+            $store->release_claim( $claim );
+        }
+    }
+
+    /**
      * Cancel a running or pending backup.
      *
      * Unschedules all pending Action Scheduler actions for the backup, deletes
