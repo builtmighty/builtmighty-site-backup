@@ -27,7 +27,7 @@ wp plugin install https://github.com/builtmighty/mighty-backup/releases/latest/d
 - **Email notifications** — alerts on backup failure
 - **Dev Mode detection** — prevents dev/staging sites from overwriting production backups
 - **Codespace integration** — REST API endpoint and bootstrap key for the pipeline
-- **Devcontainer management** — check and update .devcontainer config via GitHub API with automatic Codespace tier sizing based on site disk usage
+- **Devcontainer management** — check and update .devcontainer config via GitHub API with automatic Codespace tier sizing (with 20% headroom) based on site disk usage; creates resize PRs when a site outgrows its current tier
 - **WP-CLI support** — full command-line interface with timeout control
 - **Automatic updates** — auto-updates from GitHub releases via built-in update checker
 - **Pressable & managed hosting compatible** — handles split ABSPATH/WP_CONTENT_DIR, follows symlinked plugins, secure mysqldump via defaults file
@@ -116,6 +116,7 @@ wp mighty-backup test
 | `mighty_backup_streamlined_days` | `90` | Days of WooCommerce orders to include in streamlined mode |
 | `mighty_backup_is_log_table` | `(bool)` | Override whether a table is treated as a log table in streamlined mode |
 | `mighty_backup_order_table_config` | `(array)` | Override the order table → ID column mapping in streamlined mode |
+| `mighty_backup_db_chunk_seconds` | `30` | Max seconds per Action Scheduler action during chunked PHP database export |
 
 ### Action Hooks
 
@@ -158,7 +159,7 @@ A **Bootstrap Key** (available on the settings page) combines the site URL and A
 Backups are executed as a chain of background steps via Action Scheduler:
 
 1. **Start** — initialize backup, create log entry
-2. **Export Database** — stream a gzipped SQL dump using primary-key pagination (binary columns exported as hex)
+2. **Export Database** — stream a gzipped SQL dump using primary-key pagination (binary columns exported as hex). When mysqldump is unavailable, the PHP export is automatically chunked across multiple Action Scheduler actions to avoid timeout and memory limits on large databases.
 3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, streaming PHP fallback); symlinked plugins are dereferenced and included. On hosts where `WP_CONTENT_DIR` is outside `ABSPATH` (e.g., Pressable), both locations are archived automatically.
 4. **Upload Database** — multipart upload to Spaces (25 MB parts, 5 concurrent)
 5. **Upload Files** — multipart upload to Spaces

@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: Mighty Backup
- * Plugin URI: https://github.com/builtmighty/builtmighty-site-backup
+ * Plugin URI: https://github.com/builtmighty/mighty-backup
  * Description: Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand backups of the database and file system for use with the staged-loader Codespace pipeline.
- * Version: 2.3.0
+ * Version: 2.4.0
  * Author: Built Mighty
  * Author URI: https://builtmighty.com
  * License: GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'MIGHTY_BACKUP_VERSION', '2.3.0' );
+define( 'MIGHTY_BACKUP_VERSION', '2.4.0' );
 define( 'MIGHTY_BACKUP_FILE', __FILE__ );
 define( 'MIGHTY_BACKUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MIGHTY_BACKUP_URL', plugin_dir_url( __FILE__ ) );
@@ -96,11 +96,12 @@ require_once MIGHTY_BACKUP_DIR . 'includes/class-devcontainer-manager.php';
 // GitHub update checker.
 if ( file_exists( MIGHTY_BACKUP_DIR . 'updates/plugin-update-checker.php' ) ) {
     require_once MIGHTY_BACKUP_DIR . 'updates/plugin-update-checker.php';
-    \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
-        'https://github.com/builtmighty/builtmighty-site-backup',
+    $mighty_backup_updater = \YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+        'https://github.com/builtmighty/mighty-backup',
         MIGHTY_BACKUP_FILE,
         'mighty-backup'
     );
+    $mighty_backup_updater->setBranch( 'main' );
 }
 
 /**

@@ -153,6 +153,10 @@ class Mighty_Backup_Manager {
 
     /**
      * Step: Export database to gzipped SQL file.
+     *
+     * For mysqldump-based exports, runs in a single action (fast, low memory).
+     * For PHP-based exports, splits work across multiple actions by re-scheduling
+     * itself until all tables are exported, then compresses and advances.
      */
     public function step_export_db(): void {
         $state = $this->get_state();
@@ -163,27 +167,101 @@ class Mighty_Backup_Manager {
         $this->set_time_limit();
         $this->update_current_step( $state, 'export_db' );
 
-        do_action( 'mighty_backup_before_export_db', $state );
+        $settings    = new Mighty_Backup_Settings();
+        $streamlined = (bool) $settings->get( 'streamlined_mode', false );
+        $exporter    = new Mighty_Backup_Database_Exporter( $streamlined );
 
         try {
-            $settings    = new Mighty_Backup_Settings();
-            $streamlined = (bool) $settings->get( 'streamlined_mode', false );
+            // First invocation: determine method and initialize.
+            if ( ! isset( $state['db_export'] ) ) {
+                $method = $exporter->get_export_method();
 
-            Mighty_Backup_Log_Stream::add( 'Exporting database' . ( $streamlined ? ' (streamlined mode)' : '' ) . '...' );
+                // mysqldump paths run in a single action — no chunking needed.
+                if ( in_array( $method, [ 'mysqldump', 'streamlined_hybrid' ], true ) ) {
+                    do_action( 'mighty_backup_before_export_db', $state );
 
-            $exporter    = new Mighty_Backup_Database_Exporter( $streamlined );
-            $size        = $exporter->export( $state['db_local_path'] );
+                    Mighty_Backup_Log_Stream::add(
+                        'Exporting database' . ( $streamlined ? ' (streamlined mode)' : '' ) . '...'
+                    );
+
+                    $size = $exporter->export( $state['db_local_path'] );
+
+                    $state['db_file_size'] = $size;
+                    $this->save_state( $state );
+
+                    Mighty_Backup_Log_Stream::add( 'Database export complete (' . size_format( $size ) . ')' );
+                    do_action( 'mighty_backup_after_export_db', $state, $state['db_local_path'] );
+
+                    $this->advance( $state );
+                    return;
+                }
+
+                // PHP path: initialize chunked export.
+                do_action( 'mighty_backup_before_export_db', $state );
+
+                $tables   = $exporter->get_table_list();
+                $raw_path = $state['db_local_path'] . '.raw.sql';
+
+                $state['db_export'] = [
+                    'tables'            => $tables,
+                    'tables_exported'   => 0,
+                    'raw_path'          => $raw_path,
+                    'streamlined_config' => $streamlined ? $exporter->get_streamlined_config() : null,
+                ];
+                $this->save_state( $state );
+
+                Mighty_Backup_Log_Stream::add(
+                    'Exporting database via PHP'
+                    . ( $streamlined ? ' (streamlined)' : '' )
+                    . ' — ' . count( $tables ) . ' tables, chunked export'
+                );
+            }
+
+            // Process the next chunk of tables.
+            $db             = $state['db_export'];
+            $chunk_seconds  = (int) apply_filters( 'mighty_backup_db_chunk_seconds', 30 );
+            $is_first_chunk = ( $db['tables_exported'] === 0 );
+
+            $next_index = $exporter->export_tables_chunk(
+                $db['raw_path'],
+                $db['tables'],
+                $db['tables_exported'],
+                $chunk_seconds,
+                $is_first_chunk,
+                $db['streamlined_config']
+            );
+
+            $state['db_export']['tables_exported'] = $next_index;
+            $this->save_state( $state );
+
+            $total = count( $db['tables'] );
+            Mighty_Backup_Log_Stream::add( "Exported {$next_index}/{$total} tables" );
+
+            if ( $next_index < $total ) {
+                // More tables remain — re-schedule this same step.
+                Mighty_Backup_Log_Stream::flush();
+                as_schedule_single_action( time(), 'mighty_backup_step_export_db', [], self::ACTION_GROUP );
+                return;
+            }
+
+            // All tables done — finalize (compress to .sql.gz).
+            Mighty_Backup_Log_Stream::add( 'Compressing database export...' );
+            $size = $exporter->finalize_export( $db['raw_path'], $state['db_local_path'] );
 
             $state['db_file_size'] = $size;
+            unset( $state['db_export'] ); // Clean up transient sub-state.
             $this->save_state( $state );
 
             Mighty_Backup_Log_Stream::add( 'Database export complete (' . size_format( $size ) . ')' );
-
             do_action( 'mighty_backup_after_export_db', $state, $state['db_local_path'] );
 
             $this->advance( $state );
 
         } catch ( \Exception $e ) {
+            // Clean up raw temp file on failure.
+            if ( isset( $state['db_export']['raw_path'] ) && file_exists( $state['db_export']['raw_path'] ) ) {
+                @unlink( $state['db_export']['raw_path'] );
+            }
             $this->fail( $state, 'Database export failed: ' . $e->getMessage() );
         }
     }
@@ -400,8 +478,12 @@ class Mighty_Backup_Manager {
             $logger->fail( $state['log_id'], $error );
         }
 
-        // Clean up temp files.
-        foreach ( [ $state['db_local_path'], $state['files_local_path'] ] as $path ) {
+        // Clean up temp files (including raw SQL from chunked export).
+        $paths = [ $state['db_local_path'], $state['files_local_path'] ];
+        if ( isset( $state['db_export']['raw_path'] ) ) {
+            $paths[] = $state['db_export']['raw_path'];
+        }
+        foreach ( $paths as $path ) {
             if ( $path && file_exists( $path ) ) {
                 unlink( $path );
             }
@@ -474,6 +556,25 @@ class Mighty_Backup_Manager {
         $total      = count( $state['steps'] );
         $current    = $state['step_index'] + 1;
 
+        // Sub-progress within the chunked DB export phase.
+        $sub_progress = null;
+        if ( $state['current_step'] === 'export_db' && isset( $state['db_export'] ) ) {
+            $db           = $state['db_export'];
+            $total_tables = count( $db['tables'] );
+            $exported     = $db['tables_exported'];
+            $step_label   = sprintf( 'Exporting database (%d/%d tables)', $exported, $total_tables );
+            $sub_progress = $total_tables > 0 ? round( ( $exported / $total_tables ) * 100 ) : 0;
+        }
+
+        // Interpolate sub-progress so the progress bar moves smoothly within a step.
+        if ( $sub_progress !== null ) {
+            $step_start = round( ( ( $current - 1 ) / $total ) * 100 );
+            $step_end   = round( ( $current / $total ) * 100 );
+            $progress   = $step_start + (int) round( ( $sub_progress / 100 ) * ( $step_end - $step_start ) );
+        } else {
+            $progress = round( ( $current / $total ) * 100 );
+        }
+
         return [
             'active'       => in_array( $state['status'], [ 'pending', 'running' ], true ),
             'status'       => $state['status'],
@@ -484,7 +585,7 @@ class Mighty_Backup_Manager {
             'step_label'   => $step_label,
             'step_number'  => $current,
             'total_steps'  => $total,
-            'progress'     => round( ( $current / $total ) * 100 ),
+            'progress'     => $progress,
             'error'        => $state['error'],
             'db_file_size'    => $state['db_file_size'],
             'files_file_size' => $state['files_file_size'],
@@ -520,8 +621,12 @@ class Mighty_Backup_Manager {
             as_unschedule_all_actions( "mighty_backup_step_{$step}", [], self::ACTION_GROUP );
         }
 
-        // Delete temp files.
-        foreach ( [ $state['db_local_path'], $state['files_local_path'] ] as $path ) {
+        // Delete temp files (including raw SQL from chunked export).
+        $paths = [ $state['db_local_path'], $state['files_local_path'] ];
+        if ( isset( $state['db_export']['raw_path'] ) ) {
+            $paths[] = $state['db_export']['raw_path'];
+        }
+        foreach ( $paths as $path ) {
             if ( $path && file_exists( $path ) ) {
                 unlink( $path );
             }

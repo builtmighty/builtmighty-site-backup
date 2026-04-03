@@ -297,7 +297,7 @@
 
             // Still active.
             $('#mb-cancel-backup').show();
-            showProgress(s.message || 'Running...', s.progress || 0, s.step || '');
+            showProgress(s.message || 'Running...', s.progress || 0, s.current_step || '');
         });
     }
 
@@ -626,9 +626,17 @@
 
             var d = response.data;
 
-            if (d.status === 'up_to_date') {
+            if (d.status === 'up_to_date' && d.size_ok) {
                 showResultTimed($status, 'success', 'Up to date (v' + d.latest + ')', 6000);
                 $updateSection.hide();
+            } else if (d.status === 'up_to_date' && !d.size_ok) {
+                $status.removeClass('loading').addClass('error').text('Machine too small');
+                $versionInfo.text(
+                    'Version: v' + d.latest + ' (current)  —  CPUs: '
+                    + (d.current_cpus || 'not set') + ' → ' + d.recommended_cpus
+                    + '-core needed (site is ' + d.site_size + ')'
+                );
+                $updateSection.show();
             } else if (d.status === 'outdated') {
                 $status.removeClass('loading').addClass('error').text('Out of date');
                 if (d.current) {
@@ -657,7 +665,7 @@
         var $btn = $(this);
         var $result = $('#mb-devcontainer-update-result');
 
-        mbConfirm('Create a PR to update .devcontainer to the latest version?').then(function (confirmed) {
+        mbConfirm('Create a PR to update the .devcontainer configuration?').then(function (confirmed) {
             if (!confirmed) return;
 
             $btn.prop('disabled', true);
@@ -712,7 +720,7 @@
                 switchTab('backup');
                 $('#mb-run-backup').addClass('running').prop('disabled', true);
                 $('#mb-cancel-backup').show();
-                showProgress(response.data.message, response.data.progress, response.data.step);
+                showProgress(response.data.message, response.data.progress, response.data.current_step);
 
                 // Load existing log entries.
                 if (response.data.log_entries && response.data.log_entries.length > 0) {

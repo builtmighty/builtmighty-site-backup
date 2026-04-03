@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.3.0
+Stable tag: 2.4.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,18 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.4.0 =
+* Chunked database export — PHP-based DB exports now split across multiple Action Scheduler actions for reliable large database backups
+* Time-bounded chunks (default 30 seconds per action, filterable via `mighty_backup_db_chunk_seconds`)
+* Sub-progress reporting during DB export (shows table count and smooth progress bar interpolation)
+* Fixed GitHub update checker URL — plugin updates now work correctly
+* Stored update checker instance and set branch to `main` for correct fallback behavior
+* Fixed admin UI step indicator pills not highlighting during backup (was referencing wrong property)
+* Devcontainer size check now runs automatically during version check — detects when site has outgrown its Codespace tier
+* Devcontainer resize creates a targeted PR updating only `hostRequirements.cpus` when version is current but machine is too small
+* Codespace tier selection now includes 20% disk headroom
+* Devcontainer hostRequirements now sets only `cpus` (storage is implicit with core count on GitHub Codespaces)
 
 = 2.3.0 =
 * Devcontainer updates now set hostRequirements (cpus/storage) in devcontainer.json based on site disk size (excluding uploads)

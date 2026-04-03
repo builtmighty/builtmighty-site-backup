@@ -18,9 +18,22 @@ class Mighty_Backup_Database_Exporter {
     private int $insert_batch = 100;
     private bool $streamlined;
 
+    /**
+     * Write function — 'gzwrite' for gzip handles, 'fwrite' for plain files.
+     * Toggled by export_tables_chunk() / finalize_export() for the chunked path.
+     */
+    private string $writer = 'gzwrite';
+
     public function __construct( bool $streamlined = false ) {
         $this->batch_size   = (int) apply_filters( 'mighty_backup_db_batch_size', 1000 );
         $this->streamlined  = $streamlined;
+    }
+
+    /**
+     * Write data to the active handle using the current writer function.
+     */
+    private function write( $handle, string $data ): void {
+        ( $this->writer )( $handle, $data );
     }
 
     /**
@@ -44,6 +57,202 @@ class Mighty_Backup_Database_Exporter {
 
         return $this->export_with_php( $output_path );
     }
+
+    // ──────────────────────────────────────────────
+    //  Chunked export API (used by Backup Manager)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Determine which export method will be used without running the export.
+     *
+     * @return string 'mysqldump', 'php', 'streamlined_hybrid', or 'streamlined_php'.
+     */
+    public function get_export_method(): string {
+        if ( $this->streamlined ) {
+            return $this->can_use_mysqldump() ? 'streamlined_hybrid' : 'streamlined_php';
+        }
+        return $this->can_use_mysqldump() ? 'mysqldump' : 'php';
+    }
+
+    /**
+     * Get the ordered list of all database tables.
+     *
+     * @return string[] Table names.
+     */
+    public function get_table_list(): array {
+        return $this->get_tables();
+    }
+
+    /**
+     * Get the streamlined special table configuration (log tables, order tables, legacy flag).
+     *
+     * @return array{log_tables: string[], order_tables: array<string, string>, legacy: bool}
+     */
+    public function get_streamlined_config(): array {
+        return $this->get_streamlined_special_tables();
+    }
+
+    /**
+     * Export a chunk of tables to an uncompressed SQL file (append mode).
+     *
+     * Called repeatedly by the Backup Manager across multiple Action Scheduler
+     * actions. Each invocation processes tables until the time threshold is
+     * reached, then returns so the next action can continue.
+     *
+     * @param string     $raw_path          Path to the raw .sql file (created/appended).
+     * @param string[]   $tables            Full ordered list of table names.
+     * @param int        $start_index       Index of the first table to export in this chunk.
+     * @param int        $chunk_seconds     Max seconds before yielding (0 = no limit).
+     * @param bool       $write_preamble    Whether to write the SQL preamble (first chunk only).
+     * @param array|null $streamlined_config Cached result of get_streamlined_config(), or null for full export.
+     * @return int Index of the next table to export (equals count($tables) when done).
+     */
+    public function export_tables_chunk(
+        string $raw_path,
+        array $tables,
+        int $start_index,
+        int $chunk_seconds,
+        bool $write_preamble,
+        ?array $streamlined_config = null
+    ): int {
+        $fh = fopen( $raw_path, 'ab' );
+        if ( ! $fh ) {
+            throw new \Exception( "Failed to open raw SQL file for writing: {$raw_path}" );
+        }
+
+        $this->writer = 'fwrite';
+
+        try {
+            if ( $write_preamble ) {
+                $this->write_preamble( $fh );
+            }
+
+            $started_at  = time();
+            $total       = count( $tables );
+            $order_ids   = null;
+            $order_item_ids = null;
+
+            // Pre-fetch order IDs if streamlined mode needs them.
+            if ( $streamlined_config ) {
+                if ( ! empty( $streamlined_config['order_tables'] ) || ! empty( $streamlined_config['legacy'] ) ) {
+                    $order_ids      = $this->get_recent_order_ids();
+                    $order_item_ids = $this->get_order_item_ids( $order_ids );
+                }
+            }
+
+            for ( $i = $start_index; $i < $total; $i++ ) {
+                $table = $tables[ $i ];
+
+                if ( $streamlined_config ) {
+                    $this->export_table_chunked_streamlined(
+                        $fh, $table, $streamlined_config, $order_ids ?? [], $order_item_ids ?? []
+                    );
+                } else {
+                    $this->export_table( $fh, $table );
+                }
+
+                // Check time threshold after each table (not mid-table).
+                if ( $chunk_seconds > 0 && ( time() - $started_at ) >= $chunk_seconds ) {
+                    fclose( $fh );
+                    $this->writer = 'gzwrite';
+                    return $i + 1;
+                }
+            }
+
+            fclose( $fh );
+            $this->writer = 'gzwrite';
+            return $total;
+
+        } catch ( \Throwable $e ) {
+            fclose( $fh );
+            $this->writer = 'gzwrite';
+            throw $e;
+        }
+    }
+
+    /**
+     * Finalize a chunked export: write postamble and compress to gzip.
+     *
+     * @param string $raw_path    Path to the uncompressed .sql file.
+     * @param string $output_path Path for the output .sql.gz file.
+     * @return int File size of the compressed output in bytes.
+     * @throws \Exception On failure.
+     */
+    public function finalize_export( string $raw_path, string $output_path ): int {
+        // Append postamble to raw file.
+        $fh = fopen( $raw_path, 'ab' );
+        if ( ! $fh ) {
+            throw new \Exception( "Failed to open raw SQL file for finalization: {$raw_path}" );
+        }
+        $this->writer = 'fwrite';
+        $this->write_postamble( $fh );
+        $this->writer = 'gzwrite';
+        fclose( $fh );
+
+        // Stream-compress raw SQL into gzip output (same pattern as export_streamlined_hybrid).
+        $gzip_level = $this->get_gzip_level();
+        $gz = gzopen( $output_path, 'wb' . $gzip_level );
+        if ( ! $gz ) {
+            throw new \Exception( "Failed to open output file for compression: {$output_path}" );
+        }
+
+        try {
+            $fh = fopen( $raw_path, 'rb' );
+            if ( ! $fh ) {
+                throw new \Exception( "Failed to read raw SQL file: {$raw_path}" );
+            }
+            while ( ! feof( $fh ) ) {
+                $chunk = fread( $fh, 65536 ); // 64 KB chunks.
+                if ( $chunk !== false && $chunk !== '' ) {
+                    gzwrite( $gz, $chunk );
+                }
+            }
+            fclose( $fh );
+        } finally {
+            gzclose( $gz );
+            @unlink( $raw_path );
+        }
+
+        $size = filesize( $output_path );
+        if ( $size === false || $size === 0 ) {
+            throw new \Exception( 'Chunked export produced an empty file.' );
+        }
+
+        return $size;
+    }
+
+    /**
+     * Route a single table through the correct streamlined export method.
+     *
+     * Used by export_tables_chunk() for per-table dispatch in streamlined mode.
+     */
+    private function export_table_chunked_streamlined(
+        $handle,
+        string $table,
+        array $config,
+        array $order_ids,
+        array $order_item_ids
+    ): void {
+        global $wpdb;
+
+        if ( in_array( $table, $config['log_tables'], true ) ) {
+            $this->export_table_structure_only( $handle, $table );
+        } elseif ( isset( $config['order_tables'][ $table ] ) ) {
+            $id_column = $config['order_tables'][ $table ];
+            $id_list   = ( $id_column === 'order_item_id' ) ? $order_item_ids : $order_ids;
+            $this->export_table_filtered( $handle, $table, $id_column, $id_list );
+        } elseif ( ! empty( $config['legacy'] ) && $table === $wpdb->posts ) {
+            $this->export_table_posts_streamlined( $handle, $table, $order_ids );
+        } elseif ( ! empty( $config['legacy'] ) && $table === $wpdb->postmeta ) {
+            $this->export_table_postmeta_streamlined( $handle, $table, $order_ids );
+        } else {
+            $this->export_table( $handle, $table );
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Internal helpers
+    // ──────────────────────────────────────────────
 
     /**
      * Check if mysqldump is available on the system.
@@ -231,7 +440,7 @@ class Mighty_Backup_Database_Exporter {
             while ( ! feof( $fh ) ) {
                 $chunk = fread( $fh, 65536 ); // 64 KB chunks.
                 if ( $chunk !== false && $chunk !== '' ) {
-                    gzwrite( $gz, $chunk );
+                    $this->write( $gz, $chunk );
                 }
             }
             fclose( $fh );
@@ -322,8 +531,8 @@ class Mighty_Backup_Database_Exporter {
     private function export_streamlined_special_tables( $gz, array $special ): void {
         global $wpdb;
 
-        gzwrite( $gz, "\n-- Streamlined export: filtered tables\n" );
-        gzwrite( $gz, "SET FOREIGN_KEY_CHECKS = 0;\n\n" );
+        $this->write( $gz, "\n-- Streamlined export: filtered tables\n" );
+        $this->write( $gz, "SET FOREIGN_KEY_CHECKS = 0;\n\n" );
 
         // Log tables: structure only.
         foreach ( $special['log_tables'] as $table ) {
@@ -345,7 +554,7 @@ class Mighty_Backup_Database_Exporter {
             $this->export_table_postmeta_streamlined( $gz, $wpdb->postmeta, $order_ids );
         }
 
-        gzwrite( $gz, "\nSET FOREIGN_KEY_CHECKS = 1;\nCOMMIT;\n" );
+        $this->write( $gz, "\nSET FOREIGN_KEY_CHECKS = 1;\nCOMMIT;\n" );
     }
 
     // ──────────────────────────────────────────────
@@ -539,15 +748,15 @@ class Mighty_Backup_Database_Exporter {
     private function export_table_structure_only( $gz, string $table ): void {
         global $wpdb;
 
-        gzwrite( $gz, "--\n-- Table: `{$table}` (structure only — streamlined)\n--\n\n" );
-        gzwrite( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
+        $this->write( $gz, "--\n-- Table: `{$table}` (structure only — streamlined)\n--\n\n" );
+        $this->write( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
 
         $create = $wpdb->get_row( "SHOW CREATE TABLE `{$table}`", ARRAY_N );
         if ( ! $create || empty( $create[1] ) ) {
-            gzwrite( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
+            $this->write( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
             return;
         }
-        gzwrite( $gz, $create[1] . ";\n\n" );
+        $this->write( $gz, $create[1] . ";\n\n" );
     }
 
     /**
@@ -559,19 +768,19 @@ class Mighty_Backup_Database_Exporter {
         global $wpdb;
 
         // Structure first.
-        gzwrite( $gz, "--\n-- Table: `{$table}` (filtered — streamlined)\n--\n\n" );
-        gzwrite( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
+        $this->write( $gz, "--\n-- Table: `{$table}` (filtered — streamlined)\n--\n\n" );
+        $this->write( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
 
         $create = $wpdb->get_row( "SHOW CREATE TABLE `{$table}`", ARRAY_N );
         if ( ! $create || empty( $create[1] ) ) {
-            gzwrite( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
+            $this->write( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
             return;
         }
-        gzwrite( $gz, $create[1] . ";\n\n" );
+        $this->write( $gz, $create[1] . ";\n\n" );
 
         // No data if no matching IDs.
         if ( empty( $allowed_ids ) ) {
-            gzwrite( $gz, "-- No matching rows for streamlined export.\n\n" );
+            $this->write( $gz, "-- No matching rows for streamlined export.\n\n" );
             return;
         }
 
@@ -657,7 +866,7 @@ class Mighty_Backup_Database_Exporter {
             }
         }
 
-        gzwrite( $gz, "\n" );
+        $this->write( $gz, "\n" );
     }
 
     /**
@@ -668,15 +877,15 @@ class Mighty_Backup_Database_Exporter {
     private function export_table_posts_streamlined( $gz, string $table, array $order_ids ): void {
         global $wpdb;
 
-        gzwrite( $gz, "--\n-- Table: `{$table}` (streamlined — legacy orders)\n--\n\n" );
-        gzwrite( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
+        $this->write( $gz, "--\n-- Table: `{$table}` (streamlined — legacy orders)\n--\n\n" );
+        $this->write( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
 
         $create = $wpdb->get_row( "SHOW CREATE TABLE `{$table}`", ARRAY_N );
         if ( ! $create || empty( $create[1] ) ) {
-            gzwrite( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
+            $this->write( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
             return;
         }
-        gzwrite( $gz, $create[1] . ";\n\n" );
+        $this->write( $gz, $create[1] . ";\n\n" );
 
         // Pass 1: All non-order posts.
         $binary_cols   = $this->get_binary_columns( $table );
@@ -756,7 +965,7 @@ class Mighty_Backup_Database_Exporter {
             }
         }
 
-        gzwrite( $gz, "\n" );
+        $this->write( $gz, "\n" );
     }
 
     /**
@@ -767,15 +976,15 @@ class Mighty_Backup_Database_Exporter {
     private function export_table_postmeta_streamlined( $gz, string $table, array $recent_order_ids ): void {
         global $wpdb;
 
-        gzwrite( $gz, "--\n-- Table: `{$table}` (streamlined — legacy orders)\n--\n\n" );
-        gzwrite( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
+        $this->write( $gz, "--\n-- Table: `{$table}` (streamlined — legacy orders)\n--\n\n" );
+        $this->write( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
 
         $create = $wpdb->get_row( "SHOW CREATE TABLE `{$table}`", ARRAY_N );
         if ( ! $create || empty( $create[1] ) ) {
-            gzwrite( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
+            $this->write( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
             return;
         }
-        gzwrite( $gz, $create[1] . ";\n\n" );
+        $this->write( $gz, $create[1] . ";\n\n" );
 
         // Get all old order IDs (orders NOT in the recent set).
         $all_order_ids = array_map( 'intval', $wpdb->get_col(
@@ -788,7 +997,7 @@ class Mighty_Backup_Database_Exporter {
         if ( empty( $old_order_ids ) ) {
             // No old orders to exclude — export everything normally.
             $this->export_table_data_pk( $gz, $table, 'meta_id' );
-            gzwrite( $gz, "\n" );
+            $this->write( $gz, "\n" );
             return;
         }
 
@@ -838,7 +1047,7 @@ class Mighty_Backup_Database_Exporter {
             $this->flush_inserts( $gz, $table, $insert_buffer );
         }
 
-        gzwrite( $gz, "\n" );
+        $this->write( $gz, "\n" );
     }
 
     // ──────────────────────────────────────────────
@@ -883,7 +1092,7 @@ class Mighty_Backup_Database_Exporter {
                 . "SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n"
                 . "SET FOREIGN_KEY_CHECKS = 0;\n"
                 . "SET AUTOCOMMIT = 0;\n\n";
-        gzwrite( $gz, $header );
+        $this->write( $gz, $header );
     }
 
     /**
@@ -892,7 +1101,7 @@ class Mighty_Backup_Database_Exporter {
     private function write_postamble( $gz ): void {
         $footer = "\nSET FOREIGN_KEY_CHECKS = 1;\n"
                 . "COMMIT;\n";
-        gzwrite( $gz, $footer );
+        $this->write( $gz, $footer );
     }
 
     /**
@@ -909,15 +1118,15 @@ class Mighty_Backup_Database_Exporter {
     private function export_table( $gz, string $table ): void {
         global $wpdb;
 
-        gzwrite( $gz, "--\n-- Table: `{$table}`\n--\n\n" );
-        gzwrite( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
+        $this->write( $gz, "--\n-- Table: `{$table}`\n--\n\n" );
+        $this->write( $gz, "DROP TABLE IF EXISTS `{$table}`;\n" );
 
         $create = $wpdb->get_row( "SHOW CREATE TABLE `{$table}`", ARRAY_N );
         if ( ! $create || empty( $create[1] ) ) {
-            gzwrite( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
+            $this->write( $gz, "-- WARNING: Could not get CREATE TABLE for `{$table}`\n\n" );
             return;
         }
-        gzwrite( $gz, $create[1] . ";\n\n" );
+        $this->write( $gz, $create[1] . ";\n\n" );
 
         $pk_column = $this->get_primary_key( $table );
 
@@ -927,7 +1136,7 @@ class Mighty_Backup_Database_Exporter {
             $this->export_table_data_offset( $gz, $table );
         }
 
-        gzwrite( $gz, "\n" );
+        $this->write( $gz, "\n" );
     }
 
     /**
@@ -1087,6 +1296,6 @@ class Mighty_Backup_Database_Exporter {
         $sql = "INSERT INTO `{$table}` VALUES\n"
              . implode( ",\n", $values_strings )
              . ";\n";
-        gzwrite( $gz, $sql );
+        $this->write( $gz, $sql );
     }
 }

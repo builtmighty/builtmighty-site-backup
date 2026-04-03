@@ -157,10 +157,22 @@ class Mighty_Devcontainer_Manager {
 		}
 
 		if ( version_compare( $current_version, $latest_version, '>=' ) ) {
+			// Version is current — also check if CPU tier is adequate for site size.
+			$disk_size        = $this->calculate_site_disk_size();
+			set_transient( 'mighty_backup_site_disk_size', $disk_size, DAY_IN_SECONDS );
+			$tier             = $this->get_codespace_tier( $disk_size );
+			$recommended_cpus = $tier ? $tier['cpus'] : 16;
+			$current_cpus     = $this->extract_cpus_from_contents( $repo_file );
+			$size_ok          = $current_cpus !== null && $current_cpus >= $recommended_cpus;
+
 			return [
-				'status'  => 'up_to_date',
-				'current' => $current_version,
-				'latest'  => $latest_version,
+				'status'           => 'up_to_date',
+				'current'          => $current_version,
+				'latest'           => $latest_version,
+				'size_ok'          => $size_ok,
+				'current_cpus'     => $current_cpus,
+				'recommended_cpus' => $recommended_cpus,
+				'site_size'        => size_format( $disk_size ),
 			];
 		}
 
@@ -182,7 +194,11 @@ class Mighty_Devcontainer_Manager {
 		$latest  = $version['latest'];
 
 		if ( $version['status'] === 'up_to_date' ) {
-			throw new \RuntimeException( 'Devcontainer is already up to date (v' . $latest . ').' );
+			// Version is current — check if storage size needs updating.
+			if ( ! empty( $version['size_ok'] ) ) {
+				throw new \RuntimeException( 'Devcontainer is already up to date (v' . $latest . ') with correct sizing.' );
+			}
+			return $this->create_size_update( $config, $version );
 		}
 
 		$owner = $config['owner'];
@@ -337,10 +353,11 @@ class Mighty_Devcontainer_Manager {
 
 		if ( $disk_size > 0 ) {
 			$human_size = size_format( $disk_size );
+			$cpus       = $tier ? $tier['cpus'] : 16;
 			if ( $tier ) {
-				$pr_body .= "- Configured for **{$tier['cpus']}-core** Codespace (**{$tier['storage']}** disk). Site size: {$human_size}.\n";
+				$pr_body .= "- Configured for **{$cpus}-core** Codespace. Site size: {$human_size}.\n";
 			} else {
-				$pr_body .= "- **Warning:** Site size is {$human_size} (excluding uploads), which exceeds the 128 GB Codespace limit. Configured with maximum resources (16 cpus, 128 GB).\n";
+				$pr_body .= "- **Warning:** Site size is {$human_size} (excluding uploads), which exceeds the 128 GB Codespace limit. Configured with maximum resources ({$cpus}-core).\n";
 			}
 		}
 
@@ -350,6 +367,157 @@ class Mighty_Devcontainer_Manager {
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/pulls',
 			[
 				'title' => 'Update .devcontainer to v' . $latest,
+				'head'  => $branch_name,
+				'base'  => $default_branch,
+				'body'  => $pr_body,
+			]
+		);
+
+		return [
+			'pr_url' => $pr['html_url'],
+			'branch' => $branch_name,
+		];
+	}
+
+	/**
+	 * Create a PR that only updates the hostRequirements cpus in devcontainer.json.
+	 *
+	 * Called when the devcontainer version is current but the site has outgrown
+	 * the configured Codespace tier.
+	 *
+	 * @param array $config  GitHub config (owner, repo, pat).
+	 * @param array $version Version check result with size info.
+	 * @return array{pr_url: string, branch: string}
+	 */
+	private function create_size_update( array $config, array $version ): array {
+		$owner = $config['owner'];
+		$repo  = $config['repo'];
+
+		$disk_size = $this->calculate_site_disk_size();
+		$tier      = $this->get_codespace_tier( $disk_size );
+		$cpus      = $tier ? $tier['cpus'] : 16;
+
+		set_transient( 'mighty_backup_site_disk_size', $disk_size, DAY_IN_SECONDS );
+
+		// 1. Get the default branch and HEAD SHA.
+		$repo_info      = $this->api_get( self::API_BASE . '/repos/' . $owner . '/' . $repo );
+		$default_branch = $repo_info['default_branch'];
+
+		$ref      = $this->api_get( self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs/heads/' . $default_branch );
+		$head_sha = $ref['object']['sha'];
+
+		// 2. Create the update branch.
+		$branch_name = 'devcontainer-resize-' . $cpus . 'core';
+		try {
+			$this->api_post(
+				self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs',
+				[
+					'ref' => 'refs/heads/' . $branch_name,
+					'sha' => $head_sha,
+				]
+			);
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), '422' ) || str_contains( $e->getMessage(), 'Reference already exists' ) ) {
+				throw new \RuntimeException(
+					'Branch "' . $branch_name . '" already exists. A PR may already be open for this resize.'
+				);
+			}
+			throw $e;
+		}
+
+		// 3. Fetch the current devcontainer.json from the repo.
+		$file_url = self::API_BASE . '/repos/' . $owner . '/' . $repo
+			. '/contents/.devcontainer/devcontainer.json?ref=' . $default_branch;
+		$file_response = $this->api_get( $file_url );
+
+		$content = base64_decode( $file_response['content'] ?? '' );
+		if ( empty( $content ) ) {
+			throw new \RuntimeException( 'Could not decode existing devcontainer.json.' );
+		}
+
+		$stripped = preg_replace( '#^\s*//.*$#m', '', $content );
+		$json     = json_decode( $stripped, true );
+		if ( ! is_array( $json ) ) {
+			throw new \RuntimeException( 'Could not parse existing devcontainer.json.' );
+		}
+
+		// 4. Update hostRequirements (cpus only — disk scales with core count).
+		$json['hostRequirements'] = [
+			'cpus' => $cpus,
+		];
+
+		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+
+		// 5. Create the updated blob.
+		$new_blob = $this->api_post(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/blobs',
+			[
+				'content'  => base64_encode( $new_content ),
+				'encoding' => 'base64',
+			]
+		);
+
+		// 6. Create a new tree with just the updated file.
+		$repo_tree_data = $this->api_get(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/trees/' . $head_sha
+		);
+
+		$new_tree = $this->api_post(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/trees',
+			[
+				'base_tree' => $repo_tree_data['sha'],
+				'tree'      => [
+					[
+						'path' => '.devcontainer/devcontainer.json',
+						'mode' => '100644',
+						'type' => 'blob',
+						'sha'  => $new_blob['sha'],
+					],
+				],
+			]
+		);
+
+		// 7. Create a commit on the new branch.
+		$human_size     = size_format( $disk_size );
+		$commit_message = sprintf(
+			'Resize devcontainer to %d-core — site is %s',
+			$cpus,
+			$human_size
+		);
+
+		$new_commit = $this->api_post(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/commits',
+			[
+				'message' => $commit_message,
+				'tree'    => $new_tree['sha'],
+				'parents' => [ $head_sha ],
+			]
+		);
+
+		// 8. Point the branch to the new commit.
+		$this->api_patch(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs/heads/' . $branch_name,
+			[ 'sha' => $new_commit['sha'] ]
+		);
+
+		// 9. Create the pull request.
+		$current_cpus = $version['current_cpus'] ?? null;
+		$pr_body = sprintf(
+			"The site has grown to **%s** (excluding uploads). The current devcontainer "
+			. "is configured for **%s-core** which is too small (needs 20%% headroom).\n\n"
+			. "This PR updates `hostRequirements.cpus` to **%d** (%d-core = %d GB disk).\n\n"
+			. "Created by **Mighty Backup** plugin.",
+			$human_size,
+			$current_cpus !== null ? $current_cpus : 'unknown',
+			$cpus,
+			$cpus,
+			$this->cpus_to_disk_gb( $cpus )
+		);
+
+		$pr = $this->api_post(
+			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/pulls',
+			[
+				'title' => sprintf( 'Resize devcontainer to %d-core', $cpus ),
 				'head'  => $branch_name,
 				'base'  => $default_branch,
 				'body'  => $pr_body,
@@ -433,11 +601,10 @@ class Mighty_Devcontainer_Manager {
 		}
 
 		// Use the provided tier, or max tier as fallback for >128 GB sites.
-		$host_tier = $tier ?? [ 'cpus' => 16, 'storage' => '128gb' ];
+		$host_tier = $tier ?? [ 'cpus' => 16 ];
 
 		$json['hostRequirements'] = [
-			'cpus'    => $host_tier['cpus'],
-			'storage' => $host_tier['storage'],
+			'cpus' => $host_tier['cpus'],
 		];
 
 		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
@@ -498,23 +665,65 @@ class Mighty_Devcontainer_Manager {
 	/**
 	 * Map a disk size in bytes to a GitHub Codespace tier.
 	 *
+	 * Includes 20% headroom so the Codespace has breathing room for
+	 * runtime artifacts, package caches, and temporary files.
+	 *
+	 * Tiers: 4-core = 32 GB, 8-core = 64 GB, 16-core = 128 GB.
+	 * Only cpus is set in hostRequirements — disk walks hand-in-hand.
+	 *
 	 * @param int $disk_bytes Site disk size in bytes.
-	 * @return array{cpus: int, storage: string}|null Tier info, or null if the site exceeds 128 GB.
+	 * @return array{cpus: int}|null Tier info, or null if the site exceeds 128 GB.
 	 */
 	private function get_codespace_tier( int $disk_bytes ): ?array {
-		$gb = 1024 * 1024 * 1024;
+		$gb            = 1024 * 1024 * 1024;
+		$with_headroom = (int) ceil( $disk_bytes * 1.2 ); // 20% headroom.
 
-		if ( $disk_bytes <= 32 * $gb ) {
-			return [ 'cpus' => 4, 'storage' => '32gb' ];
+		if ( $with_headroom <= 32 * $gb ) {
+			return [ 'cpus' => 4 ];
 		}
-		if ( $disk_bytes <= 64 * $gb ) {
-			return [ 'cpus' => 8, 'storage' => '64gb' ];
+		if ( $with_headroom <= 64 * $gb ) {
+			return [ 'cpus' => 8 ];
 		}
-		if ( $disk_bytes <= 128 * $gb ) {
-			return [ 'cpus' => 16, 'storage' => '128gb' ];
+		if ( $with_headroom <= 128 * $gb ) {
+			return [ 'cpus' => 16 ];
 		}
 
 		return null;
+	}
+
+	/**
+	 * Extract the hostRequirements.cpus value from a GitHub Contents API response.
+	 *
+	 * @param array $response Contents API response for devcontainer.json.
+	 * @return int|null CPU count, or null if not set.
+	 */
+	private function extract_cpus_from_contents( array $response ): ?int {
+		$content = base64_decode( $response['content'] ?? '' );
+		if ( empty( $content ) ) {
+			return null;
+		}
+
+		$stripped = preg_replace( '#^\s*//.*$#m', '', $content );
+		$json     = json_decode( $stripped, true );
+
+		return isset( $json['hostRequirements']['cpus'] ) ? (int) $json['hostRequirements']['cpus'] : null;
+	}
+
+	/**
+	 * Map a CPU count to the corresponding disk size in GB.
+	 *
+	 * 4-core = 32 GB, 8-core = 64 GB, 16-core = 128 GB.
+	 *
+	 * @param int $cpus CPU count.
+	 * @return int Disk size in GB.
+	 */
+	private function cpus_to_disk_gb( int $cpus ): int {
+		return match ( $cpus ) {
+			4  => 32,
+			8  => 64,
+			16 => 128,
+			default => $cpus * 8,
+		};
 	}
 
 	/**

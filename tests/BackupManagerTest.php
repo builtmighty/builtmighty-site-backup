@@ -134,4 +134,89 @@ class BackupManagerTest extends TestCase {
         $manager->clear_state();
         $this->assertTrue( true ); // Reached without exception.
     }
+
+    // ──────────────────────────────────────────────
+    //  Chunked DB export tests
+    // ──────────────────────────────────────────────
+
+    public function test_get_status_shows_db_export_sub_progress(): void {
+        Functions\when( 'get_site_option' )->justReturn( [
+            'status'       => 'running',
+            'type'         => 'full',
+            'trigger'      => 'manual',
+            'timestamp'    => '2026-01-01-030000',
+            'current_step' => 'export_db',
+            'step_index'   => 1,
+            'steps'        => [ 'start', 'export_db', 'archive_files', 'upload_db', 'upload_files', 'cleanup' ],
+            'db_file_size'    => null,
+            'files_file_size' => null,
+            'error'        => null,
+            'started_at'   => '2026-01-01 03:00:00',
+            'db_export'    => [
+                'tables'          => array_fill( 0, 80, 'wp_table' ),
+                'tables_exported' => 40,
+                'raw_path'        => '/tmp/test.sql',
+                'streamlined_config' => null,
+            ],
+        ] );
+
+        $manager = new Mighty_Backup_Manager();
+        $status  = $manager->get_status();
+
+        $this->assertTrue( $status['active'] );
+        $this->assertSame( 'export_db', $status['current_step'] );
+        $this->assertSame( 'Exporting database (40/80 tables)', $status['step_label'] );
+
+        // Sub-progress should interpolate between step 1 and step 2 boundaries.
+        // Step 2/6 = 33%, Step 1/6 = 17%, halfway through tables => ~25%.
+        $this->assertGreaterThan( 17, $status['progress'] );
+        $this->assertLessThan( 33, $status['progress'] );
+    }
+
+    public function test_get_status_normal_when_no_db_export_state(): void {
+        Functions\when( 'get_site_option' )->justReturn( [
+            'status'       => 'running',
+            'type'         => 'full',
+            'trigger'      => 'manual',
+            'timestamp'    => '2026-01-01-030000',
+            'current_step' => 'export_db',
+            'step_index'   => 1,
+            'steps'        => [ 'start', 'export_db', 'archive_files', 'upload_db', 'upload_files', 'cleanup' ],
+            'db_file_size'    => null,
+            'files_file_size' => null,
+            'error'        => null,
+            'started_at'   => '2026-01-01 03:00:00',
+        ] );
+
+        $manager = new Mighty_Backup_Manager();
+        $status  = $manager->get_status();
+
+        // Without db_export sub-state, uses standard label and progress.
+        $this->assertSame( 'Exporting database', $status['step_label'] );
+        $this->assertSame( 33, $status['progress'] ); // 2/6 = 33%
+    }
+
+    public function test_cancel_cleans_up_raw_sql_file(): void {
+        $raw_path = tempnam( sys_get_temp_dir(), 'bm-test-' ) . '.sql';
+        file_put_contents( $raw_path, 'test data' );
+
+        Functions\when( 'get_site_option' )->justReturn( [
+            'status'           => 'running',
+            'log_id'           => null,
+            'db_local_path'    => null,
+            'files_local_path' => null,
+            'db_export'        => [
+                'tables'          => [],
+                'tables_exported' => 0,
+                'raw_path'        => $raw_path,
+                'streamlined_config' => null,
+            ],
+        ] );
+
+        $manager = new Mighty_Backup_Manager();
+        $result  = $manager->cancel();
+
+        $this->assertTrue( $result );
+        $this->assertFileDoesNotExist( $raw_path );
+    }
 }
