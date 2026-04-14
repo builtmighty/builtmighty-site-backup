@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.6.0
+Stable tag: 2.7.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,11 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.7.0 =
+* Fixed mysqldump false-failure on MariaDB hosts — the MariaDB `mysqldump` shim prints a deprecation warning to stderr on every call; the plugin no longer treats non-empty stderr as failure (gates on exit code only)
+* Added `mariadb-dump` binary detection — prefers `mariadb-dump` over `mysqldump` when available, avoiding the deprecation warning entirely and forward-compatible with MariaDB dropping the mysqldump shim
+* Added `set -o pipefail` to the mysqldump-to-gzip pipe so dump failures propagate correctly through the pipe
 
 = 2.6.0 =
 * Fixed DigitalOcean Spaces secret key not saving on initial save (double-sanitization bug when option did not yet exist) — same fix applied to the GitHub PAT

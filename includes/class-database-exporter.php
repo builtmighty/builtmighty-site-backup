@@ -255,7 +255,41 @@ class Mighty_Backup_Database_Exporter {
     // ──────────────────────────────────────────────
 
     /**
-     * Check if mysqldump is available on the system.
+     * Return the dump binary to use — prefers `mariadb-dump` when available.
+     *
+     * Modern MariaDB ships `mysqldump` as a compatibility shim that prints a
+     * deprecation warning to stderr on every call. Using `mariadb-dump` avoids
+     * the warning entirely and is forward-compatible.
+     */
+    private function get_dump_binary(): string {
+        static $bin = null;
+        if ( $bin !== null ) {
+            return $bin;
+        }
+        exec( 'command -v mariadb-dump 2>/dev/null', $out, $rc );
+        $bin = ( $rc === 0 && ! empty( $out[0] ) ) ? 'mariadb-dump' : 'mysqldump';
+        return $bin;
+    }
+
+    /**
+     * Strip known-benign warnings from dump stderr output.
+     *
+     * MariaDB's mysqldump shim unconditionally prints a deprecation notice
+     * to stderr on every invocation. It's harmless but previously caused
+     * false-failure exceptions. Other stderr content is preserved for
+     * diagnostic value.
+     */
+    private function filter_dump_stderr( string $stderr ): string {
+        $stderr = preg_replace(
+            '/^mysqldump: Deprecated program name\..*$\n?/m',
+            '',
+            $stderr
+        );
+        return trim( (string) $stderr );
+    }
+
+    /**
+     * Check if a usable dump binary (mariadb-dump or mysqldump) is available.
      */
     private function can_use_mysqldump(): bool {
         if ( ! function_exists( 'exec' ) ) {
@@ -268,8 +302,13 @@ class Mighty_Backup_Database_Exporter {
             return false;
         }
 
-        exec( 'which mysqldump 2>/dev/null', $output, $return_code );
-        return $return_code === 0;
+        exec( 'command -v mariadb-dump 2>/dev/null', $mariadb_out, $mariadb_rc );
+        if ( $mariadb_rc === 0 && ! empty( $mariadb_out[0] ) ) {
+            return true;
+        }
+
+        exec( 'command -v mysqldump 2>/dev/null', $mysql_out, $mysql_rc );
+        return $mysql_rc === 0 && ! empty( $mysql_out[0] );
     }
 
     // ──────────────────────────────────────────────
@@ -277,39 +316,47 @@ class Mighty_Backup_Database_Exporter {
     // ──────────────────────────────────────────────
 
     /**
-     * Export using mysqldump piped to gzip (fast, low memory).
+     * Export using mysqldump (or mariadb-dump) piped to gzip (fast, low memory).
+     *
+     * Wraps the pipe in `bash -c 'set -o pipefail; ...'` so dump failures
+     * propagate through to gzip's exit code — otherwise gzip would mask
+     * upstream failures by exiting 0 on truncated input.
      */
     private function export_with_mysqldump( string $output_path ): int {
         $gzip_level = $this->get_gzip_level();
         $err_path   = $output_path . '.err';
         $defaults   = $this->write_mysql_defaults();
+        $bin        = $this->get_dump_binary();
 
         try {
-            $command = sprintf(
-                'mysqldump --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
+            $pipe = sprintf(
+                '%s --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
                 . '--default-character-set=utf8mb4 --no-tablespaces '
                 . '%s 2>%s | gzip -%d > %s',
+                escapeshellcmd( $bin ),
                 escapeshellarg( $defaults ),
                 escapeshellarg( DB_NAME ),
                 escapeshellarg( $err_path ),
                 $gzip_level,
                 escapeshellarg( $output_path )
             );
+            $command = 'bash -c ' . escapeshellarg( 'set -o pipefail; ' . $pipe );
 
-            Mighty_Backup_Log_Stream::add( 'Using mysqldump for database export' );
+            Mighty_Backup_Log_Stream::add( 'Using ' . $bin . ' for database export' );
 
             exec( $command, $output, $return_code );
 
-            $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
+            $stderr = file_exists( $err_path ) ? (string) file_get_contents( $err_path ) : '';
             @unlink( $err_path );
+            $stderr = $this->filter_dump_stderr( $stderr );
 
-            if ( $return_code !== 0 || ! empty( $stderr ) ) {
-                throw new \Exception( "mysqldump failed (exit {$return_code}): {$stderr}" );
+            if ( $return_code !== 0 ) {
+                throw new \Exception( "{$bin} failed (exit {$return_code}): {$stderr}" );
             }
 
             $size = filesize( $output_path );
             if ( $size === false || $size === 0 ) {
-                throw new \Exception( 'mysqldump produced an empty file — check database credentials.' );
+                throw new \Exception( $bin . ' produced an empty file — check database credentials.' );
             }
 
             return $size;
@@ -393,7 +440,8 @@ class Mighty_Backup_Database_Exporter {
             $ignore_flags .= ' --ignore-table=' . escapeshellarg( DB_NAME . '.' . $table );
         }
 
-        Mighty_Backup_Log_Stream::add( 'Using mysqldump (streamlined) for bulk tables' );
+        $bin = $this->get_dump_binary();
+        Mighty_Backup_Log_Stream::add( 'Using ' . $bin . ' (streamlined) for bulk tables' );
 
         $raw_path = $output_path . '.raw.sql';
         $err_path = $output_path . '.err';
@@ -401,9 +449,10 @@ class Mighty_Backup_Database_Exporter {
 
         try {
             $command = sprintf(
-                'mysqldump --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
+                '%s --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
                 . '--default-character-set=utf8mb4 --no-tablespaces '
                 . '%s %s > %s 2>%s',
+                escapeshellcmd( $bin ),
                 escapeshellarg( $defaults ),
                 $ignore_flags,
                 escapeshellarg( DB_NAME ),
@@ -416,12 +465,13 @@ class Mighty_Backup_Database_Exporter {
             @unlink( $defaults );
         }
 
-        $stderr = file_exists( $err_path ) ? trim( (string) file_get_contents( $err_path ) ) : '';
+        $stderr = file_exists( $err_path ) ? (string) file_get_contents( $err_path ) : '';
         @unlink( $err_path );
+        $stderr = $this->filter_dump_stderr( $stderr );
 
         if ( $return_code !== 0 ) {
             @unlink( $raw_path );
-            throw new \Exception( "mysqldump failed (exit {$return_code}): {$stderr}" );
+            throw new \Exception( "{$bin} failed (exit {$return_code}): {$stderr}" );
         }
 
         // Step 2: Stream mysqldump SQL + special tables through a single gzip handle.

@@ -31,6 +31,7 @@ wp plugin install https://github.com/builtmighty/mighty-backup/releases/latest/d
 - **Self-driving backup processing** — backup steps are processed directly during admin UI polling and WP-CLI execution, with no dependency on WP-Cron or Action Scheduler's async dispatcher
 - **WP-CLI support** — full command-line interface with timeout control
 - **Automatic updates** — auto-updates from GitHub releases via built-in update checker
+- **MariaDB compatible** — prefers `mariadb-dump` when available, filters benign deprecation warnings, and uses `set -o pipefail` for robust pipe error detection
 - **Pressable & managed hosting compatible** — handles split ABSPATH/WP_CONTENT_DIR, follows symlinked plugins, secure mysqldump via defaults file
 - **Multisite compatible** — settings stored at the network level
 - **Cancel in-progress backups** — stop a running backup from the admin UI or WP-CLI
