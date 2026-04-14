@@ -241,7 +241,7 @@ Backups are executed as a chain of background steps via Action Scheduler:
 
 1. **Start** — initialize backup, create log entry
 2. **Export Database** — stream a gzipped SQL dump using primary-key pagination (binary columns exported as hex). When mysqldump is unavailable, the PHP export is automatically chunked across multiple Action Scheduler actions to avoid timeout and memory limits on large databases.
-3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, streaming PHP fallback); symlinked plugins are dereferenced and included. On hosts where `WP_CONTENT_DIR` is outside `ABSPATH` (e.g., Pressable), both locations are archived automatically.
+3. **Archive Files** — create a `tar.gz` archive (shell `tar` preferred, streaming PHP fallback); symlinked plugins are dereferenced and included. On hosts where `WP_CONTENT_DIR` is outside `ABSPATH` (e.g., Pressable), both locations are archived automatically. Files that change during archival (caches, sessions, logs) are handled gracefully — tar exit code 1 is logged as a non-fatal warning.
 4. **Upload Database** — multipart upload to Spaces (25 MB parts, 5 concurrent)
 5. **Upload Files** — multipart upload to Spaces
 6. **Cleanup** — run retention policy, delete temp files, mark complete

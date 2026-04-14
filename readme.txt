@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.7.0
+Stable tag: 2.7.1
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,9 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.7.1 =
+* Fixed tar exit code 1 ("file changed as we read it") being treated as fatal failure during file archival — exit 1 is a non-fatal warning expected on live sites with active caches, sessions, and logs; only exit code 2+ is now treated as failure
 
 = 2.7.0 =
 * Fixed mysqldump false-failure on MariaDB hosts — the MariaDB `mysqldump` shim prints a deprecation warning to stderr on every call; the plugin no longer treats non-empty stderr as failure (gates on exit code only)

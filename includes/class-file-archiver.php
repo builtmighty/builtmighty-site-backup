@@ -159,9 +159,15 @@ class Mighty_Backup_File_Archiver {
 
         exec( $command, $output, $return_code );
 
-        if ( $return_code !== 0 ) {
+        if ( $return_code >= 2 ) {
             $error = implode( "\n", $output );
             throw new \Exception( "tar command failed (exit {$return_code}): {$error}" );
+        }
+
+        // Exit 1 = "some files changed during read" — expected on live sites
+        // where object caches, sessions, and logs are constantly written.
+        if ( $return_code === 1 ) {
+            Mighty_Backup_Log_Stream::add( 'tar: some files changed during archival (non-fatal, archive is valid)' );
         }
     }
 
