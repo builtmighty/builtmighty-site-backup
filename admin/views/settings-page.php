@@ -545,6 +545,22 @@ $recent    = $logger->get_recent( 20 );
                     <?php endif; ?>
                 </td>
             </tr>
+            <?php if ( $has_key ) : ?>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Push to GitHub', 'mighty-backup' ); ?></th>
+                <td>
+                    <button type="button" id="mb-push-bootstrap-secret" class="button button-secondary">
+                        <?php esc_html_e( 'Push as Codespaces Secret', 'mighty-backup' ); ?>
+                    </button>
+                    <span id="mb-push-secret-result" class="mb-result-message" aria-live="polite"></span>
+                    <p class="description">
+                        <?php esc_html_e( 'Pushes this key directly to the configured GitHub repo as the', 'mighty-backup' ); ?>
+                        <code>BM_BOOTSTRAP_KEY</code>
+                        <?php esc_html_e( 'Codespaces secret. Requires a GitHub PAT with the Codespaces secrets write permission (configured in the Devcontainer tab).', 'mighty-backup' ); ?>
+                    </p>
+                </td>
+            </tr>
+            <?php endif; ?>
         </table>
     </div><!-- /codespace -->
 

@@ -692,6 +692,43 @@
         });
     });
 
+    // --- Codespace: Push BM_BOOTSTRAP_KEY as a GitHub Codespaces secret ---
+
+    $('#mb-push-bootstrap-secret').on('click', function () {
+        var $btn = $(this);
+        var $result = $('#mb-push-secret-result');
+
+        mbConfirm('Push BM_BOOTSTRAP_KEY to the configured GitHub repo as a Codespaces secret? This overwrites any existing secret with that name.').then(function (confirmed) {
+            if (!confirmed) return;
+
+            $btn.prop('disabled', true);
+            $result.removeClass('success error').addClass('loading').text('Pushing...');
+
+            $.post(mightyBackup.ajaxUrl, {
+                action: 'mighty_backup_push_bootstrap_secret',
+                nonce: mightyBackup.nonce,
+            })
+            .done(function (response) {
+                if (response.success) {
+                    var d = response.data;
+                    var verb = d.created ? 'created' : 'updated';
+                    var link = '<a href="' + d.secret_url + '" target="_blank" rel="noopener">View on GitHub</a>';
+                    $result.removeClass('loading').addClass('success').html(
+                        'Secret ' + verb + ' (' + d.secret_name + ' in ' + d.owner + '/' + d.repo + '). ' + link
+                    );
+                } else {
+                    $result.removeClass('loading').addClass('error').text(response.data);
+                }
+            })
+            .fail(function () {
+                $result.removeClass('loading').addClass('error').text('Request failed.');
+            })
+            .always(function () {
+                $btn.prop('disabled', false);
+            });
+        });
+    });
+
     // --- Day-of-Week Smooth Toggle ---
 
     $('#bm_schedule_frequency').on('change', function () {

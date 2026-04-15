@@ -30,6 +30,7 @@ class Mighty_Devcontainer_Manager {
 	public function init(): void {
 		add_action( 'wp_ajax_mighty_backup_devcontainer_check', [ $this, 'ajax_check_version' ] );
 		add_action( 'wp_ajax_mighty_backup_devcontainer_update', [ $this, 'ajax_install_or_update' ] );
+		add_action( 'wp_ajax_mighty_backup_push_bootstrap_secret', [ $this, 'ajax_push_bootstrap_secret' ] );
 		add_action( 'admin_notices', [ $this, 'maybe_show_size_warning' ] );
 		add_action( 'network_admin_notices', [ $this, 'maybe_show_size_warning' ] );
 	}
@@ -72,6 +73,29 @@ class Mighty_Devcontainer_Manager {
 
 		try {
 			$result = $this->install_or_update();
+			wp_send_json_success( $result );
+		} catch ( \Exception $e ) {
+			wp_send_json_error( $e->getMessage() );
+		}
+	}
+
+	/**
+	 * AJAX: Push the BM_BOOTSTRAP_KEY value to the configured repo as a
+	 * Codespaces secret.
+	 */
+	public function ajax_push_bootstrap_secret(): void {
+		check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
+
+		if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+			wp_send_json_error( 'Unauthorized' );
+		}
+
+		if ( ! $this->is_authorized_user() ) {
+			wp_send_json_error( 'Unauthorized' );
+		}
+
+		try {
+			$result = $this->push_bootstrap_secret();
 			wp_send_json_success( $result );
 		} catch ( \Exception $e ) {
 			wp_send_json_error( $e->getMessage() );
@@ -727,6 +751,101 @@ class Mighty_Devcontainer_Manager {
 	}
 
 	/**
+	 * Push the BM_BOOTSTRAP_KEY value to the configured repo as an encrypted
+	 * repo-level secret.
+	 *
+	 * The value is encrypted with libsodium sealed box against the repo's
+	 * public key (as required by the GitHub secrets API). Supports both the
+	 * Codespaces and Actions secret stores — defaults to Codespaces since
+	 * that's what the migration pipeline consumes.
+	 *
+	 * @param string $type        Either "codespaces" or "actions".
+	 * @param string $secret_name Name of the secret to create/update.
+	 * @return array{
+	 *     owner: string,
+	 *     repo: string,
+	 *     secret_name: string,
+	 *     type: string,
+	 *     created: bool,
+	 *     secret_url: string
+	 * }
+	 * @throws \RuntimeException
+	 */
+	public function push_bootstrap_secret( string $type = 'codespaces', string $secret_name = 'BM_BOOTSTRAP_KEY' ): array {
+		$type = strtolower( $type );
+		if ( ! in_array( $type, [ 'codespaces', 'actions' ], true ) ) {
+			throw new \RuntimeException( 'Secret type must be "codespaces" or "actions".' );
+		}
+
+		$secret_name = trim( $secret_name );
+		if ( $secret_name === '' || ! preg_match( '/^[A-Za-z_][A-Za-z0-9_]*$/', $secret_name ) ) {
+			throw new \RuntimeException( 'Secret name must be a valid environment variable identifier (letters, digits, underscores; cannot start with a digit).' );
+		}
+
+		if ( ! function_exists( 'sodium_crypto_box_seal' ) ) {
+			throw new \RuntimeException( 'PHP sodium extension is required to encrypt GitHub secrets but is not available on this server.' );
+		}
+
+		$bootstrap_key = Mighty_Backup_Api_Endpoint::get_bootstrap_key();
+		if ( $bootstrap_key === '' ) {
+			throw new \RuntimeException( 'Generate an API key first — the bootstrap key is empty.' );
+		}
+
+		// Validates presence of owner/repo/PAT and throws if missing.
+		$config = $this->get_github_config();
+
+		$base = sprintf(
+			'%s/repos/%s/%s/%s/secrets',
+			self::API_BASE,
+			rawurlencode( $config['owner'] ),
+			rawurlencode( $config['repo'] ),
+			$type
+		);
+
+		// 1. Fetch the repo's public key for this secret store.
+		$pk_response = $this->api_get( $base . '/public-key' );
+
+		if ( empty( $pk_response['key'] ) || empty( $pk_response['key_id'] ) ) {
+			throw new \RuntimeException( 'GitHub did not return a usable public key for this repo.' );
+		}
+
+		$public_key = base64_decode( $pk_response['key'], true );
+		if ( $public_key === false || strlen( $public_key ) !== SODIUM_CRYPTO_BOX_PUBLICKEYBYTES ) {
+			throw new \RuntimeException( 'GitHub returned a malformed public key.' );
+		}
+
+		// 2. Encrypt the bootstrap key with sealed box.
+		try {
+			$ciphertext = sodium_crypto_box_seal( $bootstrap_key, $public_key );
+		} catch ( \Throwable $e ) {
+			throw new \RuntimeException( 'Failed to encrypt the secret: ' . $e->getMessage() );
+		}
+
+		$encrypted_value = base64_encode( $ciphertext );
+
+		// 3. PUT the encrypted secret to the repo.
+		$put_url = $base . '/' . rawurlencode( $secret_name );
+		$result  = $this->api_put( $put_url, [
+			'encrypted_value' => $encrypted_value,
+			'key_id'          => $pk_response['key_id'],
+		] );
+
+		return [
+			'owner'       => $config['owner'],
+			'repo'        => $config['repo'],
+			'secret_name' => $secret_name,
+			'type'        => $type,
+			'created'     => (int) $result['status'] === 201,
+			'secret_url'  => sprintf(
+				'https://github.com/%s/%s/settings/secrets/%s',
+				rawurlencode( $config['owner'] ),
+				rawurlencode( $config['repo'] ),
+				$type
+			),
+		];
+	}
+
+	/**
 	 * Get the GitHub owner, repo, and PAT from settings with fallbacks.
 	 *
 	 * @return array{owner: string, repo: string, pat: string}
@@ -844,6 +963,38 @@ class Mighty_Devcontainer_Manager {
 		] );
 
 		return $this->handle_response( $response, $url );
+	}
+
+	/**
+	 * Make an authenticated PUT request to the GitHub API.
+	 *
+	 * Unlike the other helpers, this preserves the HTTP status code so callers
+	 * can distinguish 201 (created) from 204 (updated) — both are success codes
+	 * for the secrets API but carry different meaning.
+	 *
+	 * @return array{body: array, status: int}
+	 */
+	private function api_put( string $url, array $body ): array {
+		$config = $this->get_github_config();
+
+		$response = wp_remote_request( $url, [
+			'method'  => 'PUT',
+			'headers' => [
+				'Accept'        => 'application/vnd.github+json',
+				'Authorization' => 'Bearer ' . $config['pat'],
+				'Content-Type'  => 'application/json',
+				'User-Agent'    => 'Mighty-Backup/' . MIGHTY_BACKUP_VERSION,
+			],
+			'body'    => wp_json_encode( $body ),
+			'timeout' => 30,
+		] );
+
+		$decoded = $this->handle_response( $response, $url );
+
+		return [
+			'body'   => $decoded,
+			'status' => (int) wp_remote_retrieve_response_code( $response ),
+		];
 	}
 
 	/**

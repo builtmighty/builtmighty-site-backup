@@ -605,6 +605,71 @@ class Mighty_Backup_Api_Key_CLI_Command {
         delete_site_option( Mighty_Backup_Api_Endpoint::API_KEY_OPTION );
         WP_CLI::success( 'API key deleted. The Codespace config endpoint is now disabled.' );
     }
+
+    /**
+     * Push BM_BOOTSTRAP_KEY to the configured GitHub repo as an encrypted secret.
+     *
+     * Encrypts the bootstrap key with the repo's public key (libsodium sealed
+     * box) and writes it to either the Codespaces or Actions secret store via
+     * the GitHub API. Uses the GitHub owner/repo/PAT saved in the Devcontainer
+     * tab.
+     *
+     * ## OPTIONS
+     *
+     * [--type=<type>]
+     * : Which secret store to push to.
+     * ---
+     * default: codespaces
+     * options:
+     *   - codespaces
+     *   - actions
+     * ---
+     *
+     * [--name=<name>]
+     * : Override the secret name. Must be a valid environment variable
+     *   identifier.
+     * ---
+     * default: BM_BOOTSTRAP_KEY
+     * ---
+     *
+     * [--yes]
+     * : Skip the confirmation prompt.
+     *
+     * ## EXAMPLES
+     *
+     *     wp mighty-backup api-key push-secret
+     *     wp mighty-backup api-key push-secret --type=actions
+     *     wp mighty-backup api-key push-secret --name=BM_BOOTSTRAP_KEY_STAGING --yes
+     *
+     * @param array $args       Positional arguments.
+     * @param array $assoc_args Named arguments.
+     */
+    public function push_secret( $args, $assoc_args ) {
+        $type = strtolower( (string) ( $assoc_args['type'] ?? 'codespaces' ) );
+        $name = (string) ( $assoc_args['name'] ?? 'BM_BOOTSTRAP_KEY' );
+
+        if ( ! in_array( $type, [ 'codespaces', 'actions' ], true ) ) {
+            WP_CLI::error( 'Invalid --type. Must be "codespaces" or "actions".' );
+        }
+
+        WP_CLI::confirm(
+            sprintf( 'Push %s to the configured GitHub repo as a %s secret?', $name, $type ),
+            $assoc_args
+        );
+
+        try {
+            $manager = new Mighty_Devcontainer_Manager( new Mighty_Backup_Settings() );
+            $result  = $manager->push_bootstrap_secret( $type, $name );
+        } catch ( \Exception $e ) {
+            WP_CLI::error( $e->getMessage() );
+        }
+
+        $verb = $result['created'] ? 'created' : 'updated';
+
+        WP_CLI::success( sprintf( 'Secret %s (%s) in %s/%s.', $verb, $result['secret_name'], $result['owner'], $result['repo'] ) );
+        WP_CLI::log( sprintf( 'Type:   %s', $result['type'] ) );
+        WP_CLI::log( sprintf( 'URL:    %s', $result['secret_url'] ) );
+    }
 }
 
 /**
