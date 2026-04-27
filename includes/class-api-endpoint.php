@@ -15,12 +15,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Mighty_Backup_Api_Endpoint {
 
-	const ROUTE_NAMESPACE = 'mighty-backup/v1';
-	const ROUTE           = '/codespace-config';
-	const ROUTE_CHECK     = '/check';
-	const API_KEY_OPTION  = 'bm_backup_api_key';
-	const RATE_LIMIT      = 10; // max requests per window
-	const RATE_WINDOW     = 60; // seconds
+	const ROUTE_NAMESPACE   = 'mighty-backup/v1';
+	const ROUTE             = '/codespace-config';
+	const ROUTE_CHECK       = '/check';
+	const ROUTE_HEALTHCHECK = '/healthcheck';
+	const API_KEY_OPTION    = 'bm_backup_api_key';
+	const RATE_LIMIT        = 10; // max requests per window
+	const RATE_WINDOW       = 60; // seconds
 
 	/**
 	 * Hook into WordPress.
@@ -52,6 +53,39 @@ class Mighty_Backup_Api_Endpoint {
 				'permission_callback' => '__return_true',
 			]
 		);
+
+		register_rest_route(
+			self::ROUTE_NAMESPACE,
+			self::ROUTE_HEALTHCHECK,
+			[
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'handle_healthcheck' ],
+				'permission_callback' => '__return_true', // Auth handled inside callback.
+			]
+		);
+	}
+
+	/**
+	 * Validate HTTPS + Bearer token. Returns null on success, or a WP_Error
+	 * suitable for direct return from a REST callback.
+	 */
+	private function authorize_bearer( WP_REST_Request $request ): ?WP_Error {
+		if ( ! is_ssl() ) {
+			return new WP_Error( 'https_required', 'HTTPS is required.', [ 'status' => 403 ] );
+		}
+
+		$auth_header = $request->get_header( 'Authorization' );
+		if ( ! $auth_header || ! str_starts_with( $auth_header, 'Bearer ' ) ) {
+			return new WP_Error( 'unauthorized', 'Missing or invalid Authorization header.', [ 'status' => 401 ] );
+		}
+
+		$provided_key = substr( $auth_header, 7 );
+		$stored_key   = self::get_key();
+		if ( empty( $stored_key ) || ! hash_equals( $stored_key, $provided_key ) ) {
+			return new WP_Error( 'unauthorized', 'Invalid API key.', [ 'status' => 401 ] );
+		}
+
+		return null;
 	}
 
 	/**
@@ -131,11 +165,54 @@ class Mighty_Backup_Api_Endpoint {
 	}
 
 	/**
+	 * Handle the authed healthcheck request. Returns the public /check fields
+	 * plus a `placeholder_hash_corruption` summary so the codespace bootstrap
+	 * (and external monitoring) can detect persisted wpdb hashes BEFORE they
+	 * end up in a backup.
+	 */
+	public function handle_healthcheck( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		$auth_error = $this->authorize_bearer( $request );
+		if ( $auth_error ) {
+			return $auth_error;
+		}
+
+		$counts = Mighty_Backup_Placeholder_Repair::count_corruption();
+		$total  = 0;
+		$sample = null;
+		foreach ( $counts as $entry ) {
+			$total += $entry['count'];
+			if ( $sample === null && $entry['count'] > 0 ) {
+				$sample = [ 'table' => $entry['table'], 'column' => $entry['column'] ];
+			}
+		}
+
+		$payload = [
+			'status'    => 'ok',
+			'plugin'    => 'mighty-backup',
+			'version'   => defined( 'MIGHTY_BACKUP_VERSION' ) ? MIGHTY_BACKUP_VERSION : 'unknown',
+			'timestamp' => time(),
+			'placeholder_hash_corruption' => [
+				'count'         => $total,
+				'sample_table'  => $sample['table']  ?? null,
+				'sample_column' => $sample['column'] ?? null,
+				'per_table'     => $counts,
+			],
+		];
+
+		return new WP_REST_Response( $payload, 200 );
+	}
+
+	/**
 	 * Generate a new random API key and persist it.
+	 *
+	 * Fires `mighty_backup_api_key_generated` after persisting so that
+	 * downstream hooks (e.g., the devcontainer auto-push) can react to the
+	 * fact that the bootstrap key has changed.
 	 */
 	public static function generate_key(): string {
 		$key = bin2hex( random_bytes( 32 ) );
 		update_site_option( self::API_KEY_OPTION, $key );
+		do_action( 'mighty_backup_api_key_generated', $key );
 		return $key;
 	}
 

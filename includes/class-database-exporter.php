@@ -24,6 +24,14 @@ class Mighty_Backup_Database_Exporter {
      */
     private string $writer = 'gzwrite';
 
+    /**
+     * Number of wpdb placeholder-escape tokens stripped during this export.
+     * wpdb returns values from get_results() with literal '%' replaced by a
+     * 64-hex session hash; we must strip these before writing or they get
+     * persisted permanently on re-import.
+     */
+    private int $placeholder_strips = 0;
+
     public function __construct( bool $streamlined = false ) {
         $this->batch_size   = (int) apply_filters( 'mighty_backup_db_batch_size', 1000 );
         $this->streamlined  = $streamlined;
@@ -46,16 +54,37 @@ class Mighty_Backup_Database_Exporter {
     public function export( string $output_path ): int {
         if ( $this->streamlined ) {
             if ( $this->can_use_mysqldump() ) {
-                return $this->export_streamlined_hybrid( $output_path );
+                $size = $this->export_streamlined_hybrid( $output_path );
+            } else {
+                $size = $this->export_streamlined_php( $output_path );
             }
-            return $this->export_streamlined_php( $output_path );
+        } elseif ( $this->can_use_mysqldump() ) {
+            $size = $this->export_with_mysqldump( $output_path );
+        } else {
+            $size = $this->export_with_php( $output_path );
         }
 
-        if ( $this->can_use_mysqldump() ) {
-            return $this->export_with_mysqldump( $output_path );
-        }
+        $this->emit_placeholder_warning();
 
-        return $this->export_with_php( $output_path );
+        return $size;
+    }
+
+    /**
+     * Log a warning if the PHP path stripped placeholder-escape tokens during
+     * this export. Non-zero strips mean the production DB has '%' characters
+     * being round-tripped through wpdb — harmless in itself, but the warning
+     * is also a hint that the DB may already contain persisted '{HASH}'
+     * tokens that the mysqldump path would propagate. Admin can run
+     * `wp mighty-backup repair placeholders --dry-run` to check.
+     */
+    private function emit_placeholder_warning(): void {
+        if ( $this->placeholder_strips > 0 && class_exists( 'Mighty_Backup_Log_Stream' ) ) {
+            Mighty_Backup_Log_Stream::add( sprintf(
+                'Stripped %d wpdb placeholder-escape token(s) from PHP-path rows. ' .
+                'If the production DB has persisted hashes, run `wp mighty-backup repair placeholders --dry-run` to check.',
+                $this->placeholder_strips
+            ) );
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -155,12 +184,14 @@ class Mighty_Backup_Database_Exporter {
                 if ( $chunk_seconds > 0 && ( time() - $started_at ) >= $chunk_seconds ) {
                     fclose( $fh );
                     $this->writer = 'gzwrite';
+                    $this->emit_placeholder_warning();
                     return $i + 1;
                 }
             }
 
             fclose( $fh );
             $this->writer = 'gzwrite';
+            $this->emit_placeholder_warning();
             return $total;
 
         } catch ( \Throwable $e ) {
@@ -327,20 +358,36 @@ class Mighty_Backup_Database_Exporter {
         $err_path   = $output_path . '.err';
         $defaults   = $this->write_mysql_defaults();
         $bin        = $this->get_dump_binary();
+        $sanitize   = (bool) apply_filters( 'mighty_backup_sanitize_placeholder_hashes', true );
+        $raw_path   = $sanitize ? $output_path . '.raw.sql' : null;
 
         try {
-            $pipe = sprintf(
-                '%s --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
-                . '--default-character-set=utf8mb4 --no-tablespaces '
-                . '%s 2>%s | gzip -%d > %s',
-                escapeshellcmd( $bin ),
-                escapeshellarg( $defaults ),
-                escapeshellarg( DB_NAME ),
-                escapeshellarg( $err_path ),
-                $gzip_level,
-                escapeshellarg( $output_path )
-            );
-            $command = 'bash -c ' . escapeshellarg( 'set -o pipefail; ' . $pipe );
+            if ( $sanitize ) {
+                // Two-stage: dump to uncompressed temp, sanitize → gzip.
+                $command = sprintf(
+                    '%s --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
+                    . '--default-character-set=utf8mb4 --no-tablespaces '
+                    . '%s > %s 2>%s',
+                    escapeshellcmd( $bin ),
+                    escapeshellarg( $defaults ),
+                    escapeshellarg( DB_NAME ),
+                    escapeshellarg( $raw_path ),
+                    escapeshellarg( $err_path )
+                );
+            } else {
+                $pipe = sprintf(
+                    '%s --defaults-extra-file=%s --single-transaction --quick --skip-lock-tables --set-charset '
+                    . '--default-character-set=utf8mb4 --no-tablespaces '
+                    . '%s 2>%s | gzip -%d > %s',
+                    escapeshellcmd( $bin ),
+                    escapeshellarg( $defaults ),
+                    escapeshellarg( DB_NAME ),
+                    escapeshellarg( $err_path ),
+                    $gzip_level,
+                    escapeshellarg( $output_path )
+                );
+                $command = 'bash -c ' . escapeshellarg( 'set -o pipefail; ' . $pipe );
+            }
 
             Mighty_Backup_Log_Stream::add( 'Using ' . $bin . ' for database export' );
 
@@ -351,7 +398,15 @@ class Mighty_Backup_Database_Exporter {
             $stderr = $this->filter_dump_stderr( $stderr );
 
             if ( $return_code !== 0 ) {
+                if ( $raw_path ) {
+                    @unlink( $raw_path );
+                }
                 throw new \Exception( "{$bin} failed (exit {$return_code}): {$stderr}" );
+            }
+
+            if ( $sanitize ) {
+                $this->sanitize_and_gzip( $raw_path, $output_path, $gzip_level );
+                @unlink( $raw_path );
             }
 
             $size = filesize( $output_path );
@@ -362,6 +417,48 @@ class Mighty_Backup_Database_Exporter {
             return $size;
         } finally {
             @unlink( $defaults );
+        }
+    }
+
+    /**
+     * Sanitize a raw SQL dump (stripping any wpdb placeholder-escape tokens)
+     * while streaming it into a gzip output file. Used by the mysqldump
+     * paths to repair `{HASH}` corruption in production data without
+     * modifying production itself.
+     */
+    private function sanitize_and_gzip( string $raw_path, string $output_path, int $gzip_level ): void {
+        $in = fopen( $raw_path, 'rb' );
+        if ( ! $in ) {
+            throw new \Exception( "Failed to read mysqldump output: {$raw_path}" );
+        }
+        $gz = gzopen( $output_path, 'wb' . $gzip_level );
+        if ( ! $gz ) {
+            fclose( $in );
+            throw new \Exception( "Failed to open output file for compression: {$output_path}" );
+        }
+
+        $repaired = 0;
+        try {
+            while ( ( $line = fgets( $in ) ) !== false ) {
+                if ( strpos( $line, '{' ) !== false ) {
+                    $sanitized = Mighty_Backup_Placeholder_Repair::sanitize_string( $line );
+                    if ( $sanitized !== $line ) {
+                        ++$repaired;
+                        $line = $sanitized;
+                    }
+                }
+                gzwrite( $gz, $line );
+            }
+        } finally {
+            fclose( $in );
+            gzclose( $gz );
+        }
+
+        if ( $repaired > 0 ) {
+            Mighty_Backup_Log_Stream::add( sprintf(
+                'Sanitized %d line(s) containing wpdb placeholder hashes from the dump.',
+                $repaired
+            ) );
         }
     }
 
@@ -481,16 +578,41 @@ class Mighty_Backup_Database_Exporter {
             throw new \Exception( "Failed to open output file for writing: {$output_path}" );
         }
 
+        $sanitize = (bool) apply_filters( 'mighty_backup_sanitize_placeholder_hashes', true );
+
         try {
-            // Stream the raw mysqldump SQL into the gzip handle in chunks.
+            // Stream the raw mysqldump SQL into the gzip handle. When the
+            // sanitize filter is on (default), each line is checked for
+            // wpdb placeholder hashes and repaired before being written.
             $fh = fopen( $raw_path, 'rb' );
             if ( ! $fh ) {
                 throw new \Exception( "Failed to read mysqldump output: {$raw_path}" );
             }
-            while ( ! feof( $fh ) ) {
-                $chunk = fread( $fh, 65536 ); // 64 KB chunks.
-                if ( $chunk !== false && $chunk !== '' ) {
-                    $this->write( $gz, $chunk );
+
+            if ( $sanitize ) {
+                $repaired = 0;
+                while ( ( $line = fgets( $fh ) ) !== false ) {
+                    if ( strpos( $line, '{' ) !== false ) {
+                        $sanitized = Mighty_Backup_Placeholder_Repair::sanitize_string( $line );
+                        if ( $sanitized !== $line ) {
+                            ++$repaired;
+                            $line = $sanitized;
+                        }
+                    }
+                    $this->write( $gz, $line );
+                }
+                if ( $repaired > 0 ) {
+                    Mighty_Backup_Log_Stream::add( sprintf(
+                        'Sanitized %d line(s) containing wpdb placeholder hashes from the dump.',
+                        $repaired
+                    ) );
+                }
+            } else {
+                while ( ! feof( $fh ) ) {
+                    $chunk = fread( $fh, 65536 ); // 64 KB chunks.
+                    if ( $chunk !== false && $chunk !== '' ) {
+                        $this->write( $gz, $chunk );
+                    }
                 }
             }
             fclose( $fh );
@@ -1305,6 +1427,8 @@ class Mighty_Backup_Database_Exporter {
      * @param array $binary_cols  Set of column names that are binary types (keys = names).
      */
     private function build_values_string( array $row, array $binary_cols = [] ): string {
+        global $wpdb;
+
         $values = [];
         foreach ( $row as $key => $value ) {
             if ( is_null( $value ) ) {
@@ -1312,6 +1436,13 @@ class Mighty_Backup_Database_Exporter {
             } elseif ( isset( $binary_cols[ $key ] ) && $value !== '' ) {
                 $values[] = '0x' . bin2hex( $value );
             } else {
+                if ( is_string( $value ) ) {
+                    $stripped = $wpdb->remove_placeholder_escape( $value );
+                    if ( $stripped !== $value ) {
+                        ++$this->placeholder_strips;
+                        $value = $stripped;
+                    }
+                }
                 $values[] = "'" . esc_sql( $value ) . "'";
             }
         }

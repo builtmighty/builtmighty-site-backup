@@ -33,6 +33,110 @@ class Mighty_Devcontainer_Manager {
 		add_action( 'wp_ajax_mighty_backup_push_bootstrap_secret', [ $this, 'ajax_push_bootstrap_secret' ] );
 		add_action( 'admin_notices', [ $this, 'maybe_show_size_warning' ] );
 		add_action( 'network_admin_notices', [ $this, 'maybe_show_size_warning' ] );
+
+		// Auto-push BM_BOOTSTRAP_KEY whenever the bootstrap key changes
+		// (api-key generation) or the GitHub config changes (settings save).
+		add_action( 'mighty_backup_api_key_generated', [ $this, 'maybe_auto_push_bootstrap_secret' ] );
+		add_action(
+			'update_option_' . Mighty_Backup_Settings::OPTION_KEY,
+			[ $this, 'on_single_site_settings_save' ],
+			10,
+			2
+		);
+		add_action(
+			'update_site_option_' . Mighty_Backup_Settings::OPTION_KEY,
+			[ $this, 'on_multisite_settings_save' ],
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Hook adapter for `update_option_<option>`.
+	 *
+	 * @param mixed $old_value The previous saved settings array.
+	 * @param mixed $new_value The newly saved settings array.
+	 */
+	public function on_single_site_settings_save( $old_value, $new_value ): void {
+		$this->maybe_auto_push_on_settings_change(
+			is_array( $old_value ) ? $old_value : [],
+			is_array( $new_value ) ? $new_value : []
+		);
+	}
+
+	/**
+	 * Hook adapter for `update_site_option_<option>`.
+	 *
+	 * @param string $option    Option name.
+	 * @param mixed  $new_value The newly saved settings array.
+	 * @param mixed  $old_value The previous saved settings array.
+	 */
+	public function on_multisite_settings_save( $option, $new_value, $old_value ): void {
+		$this->maybe_auto_push_on_settings_change(
+			is_array( $old_value ) ? $old_value : [],
+			is_array( $new_value ) ? $new_value : []
+		);
+	}
+
+	/**
+	 * Diff the github config across a settings save and fire an auto-push
+	 * only when one of the relevant fields actually changed. This avoids
+	 * a GitHub API roundtrip on every unrelated settings change (retention,
+	 * schedule, etc.).
+	 */
+	private function maybe_auto_push_on_settings_change( array $old, array $new ): void {
+		$keys = [ 'github_owner', 'github_repo', 'github_pat_enc' ];
+		foreach ( $keys as $key ) {
+			if ( ( $old[ $key ] ?? '' ) !== ( $new[ $key ] ?? '' ) ) {
+				$this->maybe_auto_push_bootstrap_secret();
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Push the bootstrap key to GitHub as a Codespaces secret if all
+	 * preconditions are met (owner + repo + PAT configured, API key exists,
+	 * libsodium available). Silent no-op when any precondition fails. All
+	 * exceptions are caught and logged so this never blocks a settings save
+	 * or key-generation flow.
+	 *
+	 * @return array|null The push result on success, null on no-op or failure.
+	 */
+	public function maybe_auto_push_bootstrap_secret(): ?array {
+		$owner = (string) $this->settings->get( 'github_owner' );
+		$repo  = (string) $this->settings->get( 'github_repo' );
+		$pat   = (string) $this->settings->get_github_pat();
+
+		if ( $owner === '' || $repo === '' || $pat === '' ) {
+			return null;
+		}
+
+		if ( Mighty_Backup_Api_Endpoint::get_bootstrap_key() === '' ) {
+			return null; // No API key generated yet.
+		}
+
+		if ( ! function_exists( 'sodium_crypto_box_seal' ) ) {
+			return null; // Sodium unavailable — can't encrypt the secret.
+		}
+
+		try {
+			$result = $this->push_bootstrap_secret();
+			if ( class_exists( 'Mighty_Backup_Log_Stream' ) ) {
+				Mighty_Backup_Log_Stream::add( sprintf(
+					'Auto-pushed BM_BOOTSTRAP_KEY to %s/%s (%s).',
+					$result['owner'],
+					$result['repo'],
+					! empty( $result['created'] ) ? 'created' : 'updated'
+				) );
+			}
+			return $result;
+		} catch ( \Throwable $e ) {
+			if ( class_exists( 'Mighty_Backup_Log_Stream' ) ) {
+				Mighty_Backup_Log_Stream::add( 'Auto-push of BM_BOOTSTRAP_KEY failed: ' . $e->getMessage() );
+			}
+			return null;
+		}
 	}
 
 	/**
@@ -465,10 +569,12 @@ class Mighty_Devcontainer_Manager {
 			throw new \RuntimeException( 'Could not parse existing devcontainer.json.' );
 		}
 
-		// 4. Update hostRequirements (cpus only — disk scales with core count).
-		$json['hostRequirements'] = [
-			'cpus' => $cpus,
-		];
+		// 4. Update only the cpus field — preserve any other hostRequirements
+		//    keys (memory, storage, etc.) that the existing file declares.
+		if ( ! isset( $json['hostRequirements'] ) || ! is_array( $json['hostRequirements'] ) ) {
+			$json['hostRequirements'] = [];
+		}
+		$json['hostRequirements']['cpus'] = $cpus;
 
 		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
@@ -627,9 +733,12 @@ class Mighty_Devcontainer_Manager {
 		// Use the provided tier, or max tier as fallback for >128 GB sites.
 		$host_tier = $tier ?? [ 'cpus' => 16 ];
 
-		$json['hostRequirements'] = [
-			'cpus' => $host_tier['cpus'],
-		];
+		// Patch only the cpus field — preserve any other hostRequirements
+		// keys (memory, storage, etc.) that the template may declare.
+		if ( ! isset( $json['hostRequirements'] ) || ! is_array( $json['hostRequirements'] ) ) {
+			$json['hostRequirements'] = [];
+		}
+		$json['hostRequirements']['cpus'] = $host_tier['cpus'];
 
 		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 

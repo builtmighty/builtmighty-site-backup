@@ -106,7 +106,27 @@ wp mighty-backup test
 
 # Show / exit dev mode
 wp mighty-backup dev-mode [--disable]
+
+# Repair persisted wpdb placeholder-escape tokens (`{HASH}`) in the database
+wp mighty-backup repair placeholders [--dry-run] [--no-backup-first]
 ```
+
+#### `repair placeholders`
+
+Scrubs persisted `{<64-hex>}` tokens left behind when wpdb's session-scoped
+`placeholder_escape()` value gets stored back into the database (e.g. via an
+export → import round-trip of `get_results()` output that didn't pass through
+`remove_placeholder_escape()`). The command:
+
+1. Detects whether the database contains any persisted tokens.
+2. Counts corrupted rows across `options`, `posts` (content / title /
+   excerpt), and the core `*meta` tables, plus multisite `*_options`.
+3. With `--dry-run`, prints the per-table count and exits without writing.
+4. Otherwise, takes a pre-flight `db` backup (skip with `--no-backup-first`),
+   issues raw `UPDATE`s — bypassing `update_option()` etc. so `%` is not
+   re-escaped — recomputes `s:N:"…"` length prefixes for any affected
+   serialized strings, flushes object/page caches, and verifies zero rows
+   remain.
 
 ### Settings Management
 
@@ -181,6 +201,19 @@ wp mighty-backup api-key show [--raw]
 wp mighty-backup api-key delete
 ```
 
+#### Automatic secret push
+
+When the GitHub owner, repo, and PAT are all configured under the
+**Devcontainer** tab, the plugin automatically pushes `BM_BOOTSTRAP_KEY` to
+the configured repo as a Codespaces secret whenever:
+
+- A new API key is generated (the bootstrap key has changed), or
+- The Devcontainer settings are saved with a new owner/repo/PAT.
+
+The push is silent and best-effort — failures are logged via the live
+backup log and never block the originating action. To push manually (or to
+override the secret name / target), use `wp mighty-backup api-key push-secret`.
+
 ## Developer Hooks & Filters
 
 ### Filters
@@ -198,6 +231,8 @@ wp mighty-backup api-key delete
 | `mighty_backup_is_log_table` | `(bool)` | Override whether a table is treated as a log table in streamlined mode |
 | `mighty_backup_order_table_config` | `(array)` | Override the order table → ID column mapping in streamlined mode |
 | `mighty_backup_db_chunk_seconds` | `30` | Max seconds per Action Scheduler action during chunked PHP database export |
+| `mighty_backup_sanitize_placeholder_hashes` | `true` | Strip persisted `{<64-hex>}` wpdb placeholder tokens from the SQL dump on the way out. Set to `false` to capture an unmodified dump for debugging. |
+| `mighty_backup_placeholder_scan_targets` | `(array)` | Override the list of `[table, pk, payload_column]` tuples scanned by the repair command and the authed healthcheck. |
 
 ### Action Hooks
 
@@ -213,6 +248,7 @@ wp mighty-backup api-key delete
 | `mighty_backup_after_upload` | `$state, $type, $remote_key` | Fires after each upload step |
 | `mighty_backup_completed` | `$state` | Fires when backup completes successfully |
 | `mighty_backup_failed` | `$state, $error` | Fires when backup fails |
+| `mighty_backup_after_repair_flush` | _(none)_ | Fires after `wp mighty-backup repair placeholders` flushes object/page caches — hook here for site-specific cache layers. |
 
 ## REST API
 
@@ -234,6 +270,19 @@ Authorization: Bearer <api-key>
 Returns encrypted credentials and backup configuration for the Codespace bootstrap pipeline. HTTPS only, rate-limited to 10 requests per 60 seconds per IP.
 
 A **Bootstrap Key** (available on the settings page) combines the site URL and API key into a single Base64-encoded secret for Codespace setup.
+
+### Authed Healthcheck
+
+```
+GET /wp-json/mighty-backup/v1/healthcheck
+Authorization: Bearer <api-key>
+```
+
+Same Bearer-token auth as `codespace-config`, plus a
+`placeholder_hash_corruption` summary so the Codespace bootstrap and external
+monitoring can detect persisted wpdb hashes BEFORE they end up in a backup.
+The unauthenticated `/check` endpoint is unchanged and continues to expose
+only plugin name / version / timestamp.
 
 ## How It Works
 

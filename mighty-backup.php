@@ -3,7 +3,7 @@
  * Plugin Name: Mighty Backup
  * Plugin URI: https://github.com/builtmighty/mighty-backup
  * Description: Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand backups of the database and file system for use with the staged-loader Codespace pipeline.
- * Version: 2.7.1
+ * Version: 2.8.0
  * Author: Built Mighty
  * Author URI: https://builtmighty.com
  * License: GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'MIGHTY_BACKUP_VERSION', '2.7.1' );
+define( 'MIGHTY_BACKUP_VERSION', '2.8.0' );
 define( 'MIGHTY_BACKUP_FILE', __FILE__ );
 define( 'MIGHTY_BACKUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MIGHTY_BACKUP_URL', plugin_dir_url( __FILE__ ) );
@@ -85,6 +85,7 @@ require_once MIGHTY_BACKUP_DIR . 'includes/class-log-stream.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-settings.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-api-endpoint.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-spaces-client.php';
+require_once MIGHTY_BACKUP_DIR . 'includes/class-placeholder-repair.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-database-exporter.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-file-archiver.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-retention-manager.php';
@@ -180,10 +181,12 @@ function mighty_backup_init() {
     // WP-CLI commands.
     if ( defined( 'WP_CLI' ) && WP_CLI ) {
         require_once MIGHTY_BACKUP_DIR . 'includes/class-cli-command.php';
+        require_once MIGHTY_BACKUP_DIR . 'includes/class-repair-cli-command.php';
         WP_CLI::add_command( 'mighty-backup', 'Mighty_Backup_CLI_Command' );
         WP_CLI::add_command( 'mighty-backup settings', 'Mighty_Backup_Settings_CLI_Command' );
         WP_CLI::add_command( 'mighty-backup api-key', 'Mighty_Backup_Api_Key_CLI_Command' );
         WP_CLI::add_command( 'mighty-backup devcontainer', 'Mighty_Backup_Devcontainer_CLI_Command' );
+        WP_CLI::add_command( 'mighty-backup repair', 'Mighty_Backup_Repair_CLI_Command' );
     }
 }
 add_action( 'plugins_loaded', 'mighty_backup_init' );

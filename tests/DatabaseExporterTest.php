@@ -93,4 +93,35 @@ class DatabaseExporterTest extends TestCase {
         // just verify it's one of the two supported values.
         $this->assertContains( $bin, [ 'mariadb-dump', 'mysqldump' ] );
     }
+
+    public function test_build_values_string_strips_placeholder_escape_hash(): void {
+        // wpdb's get_results() returns user data with literal '%' replaced by
+        // the session's `{HASH}` token. build_values_string() must call
+        // remove_placeholder_escape on every string value before writing,
+        // or the dump bakes the hash in permanently.
+        $hash = '{' . str_repeat( 'a', 64 ) . '}';
+
+        $stub = new class( $hash ) {
+            public function __construct( private string $hash ) {}
+            public function remove_placeholder_escape( string $val ): string {
+                return str_replace( $this->hash, '%', $val );
+            }
+        };
+        $GLOBALS['wpdb'] = $stub;
+
+        Functions\when( 'esc_sql' )->alias( static fn ( $v ) => addslashes( (string) $v ) );
+
+        $exporter = new Mighty_Backup_Database_Exporter();
+        $row      = [
+            'option_id'    => 1,
+            'option_value' => "/{$hash}postname{$hash}/",
+        ];
+
+        $result = $this->invoke( $exporter, 'build_values_string', [ $row, [] ] );
+
+        $this->assertStringNotContainsString( $hash, $result );
+        $this->assertStringContainsString( '/%postname%/', $result );
+
+        unset( $GLOBALS['wpdb'] );
+    }
 }
