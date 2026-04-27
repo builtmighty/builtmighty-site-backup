@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.8.0
+Stable tag: 2.9.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -21,13 +21,16 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 
 == Changelog ==
 
-= 2.8.0 =
+= 2.9.0 =
 * Fixed `wpdb::placeholder_escape()` corruption at the source — the PHP database export path now strips `{<64-hex>}` placeholder tokens from every row before writing, so backups created from sites with `%` characters in user data no longer bake the session hash into the dump
 * Added serialize-aware sanitize pass to the mysqldump and streamlined-hybrid export paths — strips persisted `{HASH}` tokens from the dump on the way out, recomputing `s:N:"…"` length prefixes; gated by the new `mighty_backup_sanitize_placeholder_hashes` filter (default true) so debugging admins can capture an unmodified dump
 * Added `wp mighty-backup repair placeholders [--dry-run] [--no-backup-first]` — scans `options`, `posts`, and core `*meta` tables for persisted placeholder tokens, takes a pre-flight backup, repairs in place via raw `UPDATE` (bypassing `update_option()` so `%` is not re-escaped), and flushes object/page caches (LiteSpeed, WP Rocket, W3TC, plus the new `mighty_backup_after_repair_flush` action)
 * Added authed `GET /wp-json/mighty-backup/v1/healthcheck` REST endpoint — Bearer-token authenticated like `/codespace-config`, exposes a `placeholder_hash_corruption` summary (count + sample location) so monitoring and the codespace bootstrap can detect persisted hashes BEFORE they end up in a backup
 * Added automatic push of `BM_BOOTSTRAP_KEY` to the configured GitHub repo as a Codespaces secret — fires when a new API key is generated or when GitHub owner/repo/PAT change in the Devcontainer tab; silent best-effort, errors logged to the live backup log without blocking the originating action
 * Fixed devcontainer hostRequirements update overwriting sibling fields — `cpus` is now patched in place, preserving any `memory`/`storage` keys that the template declares
+
+= 2.8.0 =
+* Added `wp mighty-backup api-key push-secret` — pushes `BM_BOOTSTRAP_KEY` to the configured GitHub repo as an encrypted Codespaces or Actions secret using libsodium sealed-box encryption against the repo's public key
 
 = 2.7.1 =
 * Fixed tar exit code 1 ("file changed as we read it") being treated as fatal failure during file archival — exit 1 is a non-fatal warning expected on live sites with active caches, sessions, and logs; only exit code 2+ is now treated as failure
