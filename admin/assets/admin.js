@@ -960,9 +960,50 @@
 
     // --- Devcontainer: Install / Update ---
 
+    var dcPollTimer = null;
+
+    function dcRenderProgress(payload) {
+        var $box = $('#mb-devcontainer-progress-box');
+        if (!$box.length || !payload || typeof payload !== 'object') return;
+
+        var percent = typeof payload.percent === 'number' ? payload.percent : 0;
+        $box.find('.mb-progress-bar').css('width', percent + '%');
+        $box.find('.mb-progress-bar-wrap').attr('aria-valuenow', percent);
+
+        var text = (payload.message || '') + ' (' + percent + '%)';
+        if (typeof payload.eta === 'number' && payload.eta > 0) {
+            text += ' · ~' + formatDuration(payload.eta) + ' remaining';
+        }
+        $box.find('.mb-progress-text').text(text);
+    }
+
+    function dcStopPolling() {
+        if (dcPollTimer) {
+            clearInterval(dcPollTimer);
+            dcPollTimer = null;
+        }
+    }
+
+    function dcStartPolling() {
+        dcStopPolling();
+        dcPollTimer = setInterval(function () {
+            $.post(mightyBackup.ajaxUrl, {
+                action: 'mighty_backup_devcontainer_progress',
+                nonce: mightyBackup.nonce,
+            }).done(function (response) {
+                // Ignore empty payloads so a poll that lands between writes
+                // doesn't reset the bar.
+                if (response && response.success && response.data) {
+                    dcRenderProgress(response.data);
+                }
+            });
+        }, 1200);
+    }
+
     $('#mb-devcontainer-update').on('click', function () {
         var $btn = $(this);
         var $result = $('#mb-devcontainer-update-result');
+        var $box = $('#mb-devcontainer-progress-box');
 
         mbConfirm('Create a PR to update the .devcontainer configuration?').then(function (confirmed) {
             if (!confirmed) return;
@@ -970,21 +1011,34 @@
             $btn.prop('disabled', true);
             $result.removeClass('success error').addClass('loading').text('Creating PR...');
 
+            // Reset and reveal the progress bar, then poll for live progress
+            // while the (blocking) update request runs.
+            $box.find('.mb-progress-bar').css('width', '0');
+            $box.find('.mb-progress-bar-wrap').attr('aria-valuenow', 0);
+            $box.find('.mb-progress-text').text('Starting…');
+            $box.show();
+            dcStartPolling();
+
             $.post(mightyBackup.ajaxUrl, {
                 action: 'mighty_backup_devcontainer_update',
                 nonce: mightyBackup.nonce,
             })
             .done(function (response) {
+                dcStopPolling();
                 if (response.success) {
+                    dcRenderProgress({ message: 'Pull request created.', percent: 100 });
                     $result.removeClass('loading').addClass('success').html(
                         'PR created! <a href="' + response.data.pr_url + '" target="_blank" rel="noopener">View Pull Request</a>'
                     );
                 } else {
+                    $box.hide();
                     renderResult($result, 'error', response.data);
                     $btn.prop('disabled', false);
                 }
             })
             .fail(function () {
+                dcStopPolling();
+                $box.hide();
                 renderResult($result, 'error', 'Request failed.');
                 $btn.prop('disabled', false);
             });

@@ -550,6 +550,14 @@ $recent              = $history_result['items'];
                 </button>
                 <span id="mb-devcontainer-update-result" class="mb-result-message" aria-live="polite"></span>
             </p>
+            <div id="mb-devcontainer-progress-box" class="mb-progress-box" style="display:none;">
+                <div class="mb-progress-bar-wrap" role="progressbar"
+                     aria-label="<?php esc_attr_e( 'Devcontainer update progress', 'mighty-backup' ); ?>"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div class="mb-progress-bar"></div>
+                </div>
+                <span class="mb-progress-text" aria-live="polite"></span>
+            </div>
         </div>
     </div><!-- /devcontainer (update) -->
 

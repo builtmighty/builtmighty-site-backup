@@ -24,6 +24,12 @@ class Mighty_Backup_File_Archiver {
         '.git',
         'node_modules',
 
+        // Devcontainer config is owned by the GitHub repo (source of truth) and
+        // deployed to the Codespace by cloning that repo. Backing it up would let
+        // a stale copy from the source site overwrite the repo's version on import,
+        // rolling back devcontainer upgrades. Keep it out of the archive entirely.
+        '.devcontainer',
+
         // Backup plugin directories.
         'wp-content/updraft',
         'wp-content/ai1wm-backups',
