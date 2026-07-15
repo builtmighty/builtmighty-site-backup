@@ -15,6 +15,7 @@ class Mighty_Backup_Log_Stream {
 
 	private const OPTION_KEY      = 'bm_backup_live_log';
 	private const PROGRESS_KEY    = 'bm_backup_live_progress';
+	private const DEVCONTAINER_PROGRESS_KEY = 'bm_devcontainer_progress';
 	private const MAX_ENTRIES     = 200;
 	private const FLUSH_EVERY     = 10;
 
@@ -125,5 +126,44 @@ class Mighty_Backup_Log_Stream {
 	 */
 	public static function clear_progress(): void {
 		delete_site_option( self::PROGRESS_KEY );
+	}
+
+	// ------------------------------------------------------------------
+	// Devcontainer update progress — a separate channel from the backup
+	// progress above, so a devcontainer update and a running backup never
+	// clobber each other's progress payload.
+	// ------------------------------------------------------------------
+
+	/**
+	 * Set the devcontainer update's live progress. Same payload shape as
+	 * set_progress(), stored under its own site option.
+	 */
+	public static function set_devcontainer_progress( string $message, int $current, int $total, ?int $eta_seconds = null ): void {
+		update_site_option( self::DEVCONTAINER_PROGRESS_KEY, [
+			'message' => $message,
+			'current' => $current,
+			'total'   => $total,
+			'percent' => $total > 0 ? (int) round( ( $current / $total ) * 100 ) : 0,
+			'eta'     => $eta_seconds,
+			'time'    => gmdate( 'H:i:s' ),
+		] );
+	}
+
+	/**
+	 * Read the devcontainer progress payload, or null when none is set.
+	 *
+	 * @return array{message:string,current:int,total:int,percent:int,eta:?int,time:string}|null
+	 */
+	public static function get_devcontainer_progress(): ?array {
+		$p = get_site_option( self::DEVCONTAINER_PROGRESS_KEY );
+		return is_array( $p ) ? $p : null;
+	}
+
+	/**
+	 * Clear the devcontainer progress indicator. Call at the start of each
+	 * update so a previous run's progress doesn't linger.
+	 */
+	public static function clear_devcontainer_progress(): void {
+		delete_site_option( self::DEVCONTAINER_PROGRESS_KEY );
 	}
 }

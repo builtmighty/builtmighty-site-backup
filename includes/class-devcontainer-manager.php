@@ -22,6 +22,9 @@ class Mighty_Devcontainer_Manager {
 
 	private Mighty_Backup_Settings $settings;
 
+	/** @var float|null Wall-clock start of the current update, for ETA math. */
+	private ?float $progress_started_at = null;
+
 	public function __construct( Mighty_Backup_Settings $settings ) {
 		$this->settings = $settings;
 	}
@@ -32,6 +35,7 @@ class Mighty_Devcontainer_Manager {
 	public function init(): void {
 		add_action( 'wp_ajax_mighty_backup_devcontainer_check', [ $this, 'ajax_check_version' ] );
 		add_action( 'wp_ajax_mighty_backup_devcontainer_update', [ $this, 'ajax_install_or_update' ] );
+		add_action( 'wp_ajax_mighty_backup_devcontainer_progress', [ $this, 'ajax_update_progress' ] );
 		add_action( 'wp_ajax_mighty_backup_push_bootstrap_secret', [ $this, 'ajax_push_bootstrap_secret' ] );
 		add_action( 'admin_notices', [ $this, 'maybe_show_size_warning' ] );
 		add_action( 'network_admin_notices', [ $this, 'maybe_show_size_warning' ] );
@@ -186,6 +190,26 @@ class Mighty_Devcontainer_Manager {
 	}
 
 	/**
+	 * AJAX: Return the live progress of an in-flight devcontainer update.
+	 *
+	 * Polled concurrently by the admin JS while ajax_install_or_update() runs.
+	 * Read-only and cheap so it can be hit every second or two.
+	 */
+	public function ajax_update_progress(): void {
+		check_ajax_referer( 'mighty_backup_nonce', 'nonce' );
+
+		if ( ! current_user_can( is_multisite() ? 'manage_network_options' : 'manage_options' ) ) {
+			wp_send_json_error( 'Unauthorized' );
+		}
+
+		if ( ! $this->is_authorized_user() ) {
+			wp_send_json_error( 'Unauthorized' );
+		}
+
+		wp_send_json_success( Mighty_Backup_Log_Stream::get_devcontainer_progress() );
+	}
+
+	/**
 	 * AJAX: Push the BM_BOOTSTRAP_KEY value to the configured repo as a
 	 * Codespaces secret.
 	 */
@@ -307,9 +331,10 @@ class Mighty_Devcontainer_Manager {
 		}
 
 		return [
-			'status'  => 'outdated',
-			'current' => $current_version,
-			'latest'  => $latest_version,
+			'status'      => 'outdated',
+			'current'     => $current_version,
+			'latest'      => $latest_version,
+			'current_cpus' => $this->extract_cpus_from_contents( $repo_file ),
 		];
 	}
 
@@ -319,6 +344,9 @@ class Mighty_Devcontainer_Manager {
 	 * @return array{pr_url: string, branch: string}
 	 */
 	public function install_or_update(): array {
+		$this->progress_start();
+		$this->report_progress( 'Checking version…', 0, 1 );
+
 		$config  = $this->get_github_config();
 		$version = $this->check_version();
 		$latest  = $version['latest'];
@@ -333,6 +361,8 @@ class Mighty_Devcontainer_Manager {
 
 		$owner = $config['owner'];
 		$repo  = $config['repo'];
+
+		$this->report_progress( 'Preparing update branch…', 0, 1 );
 
 		// 1. Get the default branch.
 		$repo_info      = $this->api_get( self::API_BASE . '/repos/' . $owner . '/' . $repo );
@@ -381,6 +411,14 @@ class Mighty_Devcontainer_Manager {
 		// Cache for the admin warning notice.
 		set_transient( 'mighty_backup_site_disk_size', $disk_size, DAY_IN_SECONDS );
 
+		// Preserve the repo's existing hostRequirements.cpus on a version upgrade —
+		// only fall back to the disk-size-derived tier when the repo has none set.
+		// (Site growth is still handled separately by create_size_update().)
+		$existing_cpus = $version['current_cpus'] ?? null;
+		$cpus_tier     = $existing_cpus !== null
+			? [ 'cpus' => $existing_cpus ]
+			: $tier;
+
 		// 7. Build the new tree entries.
 		$tree_items = [];
 
@@ -399,7 +437,9 @@ class Mighty_Devcontainer_Manager {
 		}
 
 		// 7b. Add all global template entries EXCEPT setup/*.
-		$global_paths = [];
+		//     Collect the files first so we know the total for the progress bar.
+		$global_paths  = [];
+		$files_to_copy = [];
 		foreach ( $global_tree as $entry ) {
 			if ( $entry['type'] !== 'blob' ) {
 				continue;
@@ -410,11 +450,21 @@ class Mighty_Devcontainer_Manager {
 			if ( str_starts_with( $entry['path'], '.devcontainer/setup/' ) ) {
 				continue;
 			}
+			$files_to_copy[]              = $entry;
 			$global_paths[ $entry['path'] ] = true;
+		}
 
-			// Inject hostRequirements into devcontainer.json based on site disk size.
+		// Progress units: one per file copied, plus two finalize steps
+		// (create commit, open PR).
+		$file_count = count( $files_to_copy );
+		$total      = $file_count + 2;
+		$done       = 0;
+
+		foreach ( $files_to_copy as $entry ) {
+			// Inject hostRequirements into devcontainer.json, preserving the repo's
+			// existing cpus (or the disk-size tier when the repo has none set).
 			if ( $entry['path'] === '.devcontainer/devcontainer.json' ) {
-				$new_sha = $this->copy_blob_with_host_requirements( $entry['sha'], $owner, $repo, $tier );
+				$new_sha = $this->copy_blob_with_host_requirements( $entry['sha'], $owner, $repo, $cpus_tier );
 			} else {
 				$new_sha = $this->copy_blob_to_repo( $entry['sha'], $owner, $repo );
 			}
@@ -424,6 +474,14 @@ class Mighty_Devcontainer_Manager {
 				'type' => 'blob',
 				'sha'  => $new_sha,
 			];
+
+			$done++;
+			$short = substr( $entry['path'], strlen( '.devcontainer/' ) );
+			$this->report_progress(
+				sprintf( 'Copying %s (%d/%d)', $short, $done, $file_count ),
+				$done,
+				$total
+			);
 		}
 
 		// 7c. Delete repo .devcontainer/* entries that are not in the global template
@@ -460,6 +518,7 @@ class Mighty_Devcontainer_Manager {
 		);
 
 		// 9. Create a commit on the new branch.
+		$this->report_progress( 'Creating commit…', $done, $total );
 		$commit_message = 'Update .devcontainer to v' . $latest;
 		$new_commit     = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/commits',
@@ -477,17 +536,20 @@ class Mighty_Devcontainer_Manager {
 		);
 
 		// 11. Create the pull request.
+		$this->report_progress( 'Opening pull request…', $done + 1, $total );
 		$pr_body = "Updates the `.devcontainer` configuration to **v{$latest}** from the global template.\n\n"
 			. "- `.devcontainer/setup/` has been preserved.\n"
 			. "- All other `.devcontainer/` files have been replaced with the latest template.\n";
 
 		if ( $disk_size > 0 ) {
 			$human_size = size_format( $disk_size );
-			$cpus       = $tier ? $tier['cpus'] : 32;
-			if ( $tier ) {
-				$pr_body .= "- Configured for **{$cpus}-core** Codespace. Site size: {$human_size}.\n";
+			if ( $existing_cpus !== null ) {
+				// cpus were preserved from the repo, not recomputed from size.
+				$pr_body .= "- Preserved the repo's existing **{$existing_cpus}-core** `hostRequirements.cpus`. Site size: {$human_size}.\n";
+			} elseif ( $tier ) {
+				$pr_body .= "- Configured for **{$tier['cpus']}-core** Codespace. Site size: {$human_size}.\n";
 			} else {
-				$pr_body .= "- **Warning:** Site size is {$human_size} (excluding uploads), which exceeds the 256 GB Codespace limit. Configured with maximum resources ({$cpus}-core).\n";
+				$pr_body .= "- **Warning:** Site size is {$human_size} (excluding uploads), which exceeds the 256 GB Codespace limit. Configured with maximum resources (32-core).\n";
 			}
 		}
 
@@ -502,6 +564,8 @@ class Mighty_Devcontainer_Manager {
 				'body'  => $pr_body,
 			]
 		);
+
+		$this->report_progress( 'Pull request created.', $total, $total );
 
 		return [
 			'pr_url' => $pr['html_url'],
@@ -528,6 +592,8 @@ class Mighty_Devcontainer_Manager {
 		$cpus      = $tier ? $tier['cpus'] : 32;
 
 		set_transient( 'mighty_backup_site_disk_size', $disk_size, DAY_IN_SECONDS );
+
+		$this->report_progress( 'Preparing resize…', 0, 4 );
 
 		// 1. Get the default branch and HEAD SHA.
 		$repo_info      = $this->api_get( self::API_BASE . '/repos/' . $owner . '/' . $repo );
@@ -589,6 +655,8 @@ class Mighty_Devcontainer_Manager {
 			]
 		);
 
+		$this->report_progress( 'Updating configuration…', 1, 4 );
+
 		// 6. Create a new tree with just the updated file.
 		$repo_tree_data = $this->api_get(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/trees/' . $head_sha
@@ -610,6 +678,7 @@ class Mighty_Devcontainer_Manager {
 		);
 
 		// 7. Create a commit on the new branch.
+		$this->report_progress( 'Creating commit…', 2, 4 );
 		$human_size     = size_format( $disk_size );
 		$commit_message = sprintf(
 			'Resize devcontainer to %d-core — site is %s',
@@ -633,6 +702,7 @@ class Mighty_Devcontainer_Manager {
 		);
 
 		// 9. Create the pull request.
+		$this->report_progress( 'Opening pull request…', 3, 4 );
 		$current_cpus = $version['current_cpus'] ?? null;
 		$pr_body = sprintf(
 			"The site has grown to **%s** (excluding uploads). The current devcontainer "
@@ -656,6 +726,8 @@ class Mighty_Devcontainer_Manager {
 			]
 		);
 
+		$this->report_progress( 'Pull request created.', 4, 4 );
+
 		return [
 			'pr_url' => $pr['html_url'],
 			'branch' => $branch_name,
@@ -667,6 +739,34 @@ class Mighty_Devcontainer_Manager {
 	 */
 	private function is_authorized_user(): bool {
 		return mighty_backup_is_authorized_user();
+	}
+
+	/**
+	 * Reset the update progress channel and start the ETA clock. Call once at
+	 * the very start of an update/resize run.
+	 */
+	private function progress_start(): void {
+		$this->progress_started_at = microtime( true );
+		Mighty_Backup_Log_Stream::clear_devcontainer_progress();
+	}
+
+	/**
+	 * Emit a progress milestone. ETA is derived from average time-per-unit so
+	 * far, extrapolated over the remaining units (null until the first unit
+	 * completes or once finished).
+	 */
+	private function report_progress( string $message, int $current, int $total ): void {
+		if ( $this->progress_started_at === null ) {
+			$this->progress_started_at = microtime( true );
+		}
+
+		$eta = null;
+		if ( $current > 0 && $current < $total ) {
+			$elapsed = microtime( true ) - $this->progress_started_at;
+			$eta     = (int) ceil( ( $elapsed / $current ) * ( $total - $current ) );
+		}
+
+		Mighty_Backup_Log_Stream::set_devcontainer_progress( $message, $current, $total, $eta );
 	}
 
 	// ------------------------------------------------------------------

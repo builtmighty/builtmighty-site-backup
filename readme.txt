@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.14.1
+Stable tag: 2.15.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,13 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.15.0 =
+**Devcontainer updater improvements — three fixes to the Devcontainer tab's update flow.**
+
+* **Preserve the repo's `hostRequirements.cpus` on a version upgrade.** Previously, updating `.devcontainer` to a newer template version rewrote `devcontainer.json` with `cpus` recomputed from the site's current disk size, silently discarding a repo that had been tuned to (or previously resized to) a larger machine. `Mighty_Devcontainer_Manager::install_or_update()` now reads the destination repo's existing `cpus` (via `check_version()`, which now returns `current_cpus` on the outdated path too) and preserves it, only falling back to the disk-size-derived tier when the repo has no `cpus` set. The separate `create_size_update()` "site outgrew its machine" resize path is unchanged, so genuine growth is still detected and offered as its own PR on the next up-to-date check. The update PR body now states whether `cpus` was preserved or computed.
+* **Stop backups from rolling back a devcontainer upgrade.** The file archiver captured everything under `ABSPATH` and did not exclude `.devcontainer/` (only `.git` and `node_modules`), so the source site's stale `.devcontainer/` rode along in the backup and, on Codespace bootstrap/import, overwrote the repo's freshly-upgraded config — the pre-upgrade status page reappeared even though the repo/PR had updated correctly. `.devcontainer` is now in `Mighty_Backup_File_Archiver::DEFAULT_EXCLUSIONS`, applied to both the shell-`tar` and PHP-walker capture paths. The GitHub repo is the source of truth for `.devcontainer/`; the Codespace clones it from the repo, and backups no longer carry a competing copy.
+* **Live progress bar for the devcontainer update.** The update was a single blocking request that only disabled the button and showed a frozen "Creating PR…" label for the ~20-30 sequential GitHub API calls. It now shows a determinate progress bar with percentage and estimated time remaining, driven by a dedicated progress channel (`Mighty_Backup_Log_Stream::set_devcontainer_progress()`, separate from the backup progress so the two never collide) that the admin JS polls concurrently. The per-file blob-copy loop reports "Copying file X of N".
 
 = 2.14.1 =
 * Fixed an `open_basedir` warning emitted by the bundled AWS SDK on every S3/Spaces client construction (twice per Action Scheduler queue run on affected hosts). The SDK's shared-config resolver probed `$HOME/.aws/config`, which on hosts like Sevalla resolves to a path outside the `open_basedir` allow-list (e.g. `/www/<site>/.aws/config`), tripping `is_readable()`. `Mighty_Backup_Spaces_Client` already passes credentials, region, and endpoint explicitly, so the shared config/credentials files were never needed; the client now sets `use_aws_shared_config_files => false`, which stops the probe entirely. No credential or behavior change — uploads, listing, and signing are unaffected. (VAL-892)
