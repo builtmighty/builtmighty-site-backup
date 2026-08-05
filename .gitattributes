@@ -1,0 +1,16 @@
+# GitHub builds the source zipball with `git archive`, which honours
+# export-ignore. That zipball is what plugin-update-checker actually downloads
+# for auto-updates, so this is the only lever that slims the shipped artifact.
+#
+# Also keeps tests/bootstrap.php — which has no ABSPATH guard and would execute
+# `require ../vendor/autoload.php` if reached over HTTP — out of the webroot.
+#
+# Applies to tags created after this file lands; GitHub caches archives per-tag.
+# actions/checkout does a clone rather than an archive, so CI is unaffected.
+
+/tests          export-ignore
+/phpunit.xml    export-ignore
+/.github        export-ignore
+/.claude        export-ignore
+/.gitignore     export-ignore
+/.gitattributes export-ignore

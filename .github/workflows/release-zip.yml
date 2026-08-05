@@ -15,15 +15,123 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Do NOT add --no-scripts: the AWS service pruner runs as this package's
+      # pre-autoload-dump script, and skipping it ships a 50 MB vendor tree.
       - name: Install Composer dependencies
         run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      # Fail loudly rather than silently shipping an unpruned or dev-laden tree.
+      - name: Verify vendor was pruned
+        run: |
+          set -euo pipefail
+
+          # Unused AWS services must be gone.
+          for d in Ec2 CloudFront SageMaker data/ec2 data/cloudfront; do
+            if [ -e "vendor/aws/aws-sdk-php/src/$d" ]; then
+              echo "::error::AWS service not pruned: src/$d - is the pre-autoload-dump script wired up?"
+              exit 1
+            fi
+          done
+
+          # Dev dependencies must be gone.
+          for d in phpunit mockery brain sebastian nikic hamcrest phar-io antecedent myclabs theseer; do
+            if [ -d "vendor/$d" ]; then
+              echo "::error::Dev dependency present in vendor/: $d"
+              exit 1
+            fi
+          done
+
+          # Nothing dev may be eagerly included on every request.
+          if grep -qiE 'phpunit|mockery|deep_copy|brain/monkey|hamcrest' vendor/composer/autoload_files.php; then
+            echo "::error::vendor/composer/autoload_files.php eager-loads dev files on every request:"
+            cat vendor/composer/autoload_files.php
+            exit 1
+          fi
+
+          # The surface includes/class-spaces-client.php actually uses must survive.
+          for f in \
+            vendor/aws/aws-sdk-php/src/S3/S3Client.php \
+            vendor/aws/aws-sdk-php/src/S3/MultipartUploader.php \
+            vendor/aws/aws-sdk-php/src/ResultPaginator.php \
+            vendor/aws/aws-sdk-php/src/data/s3/2006-03-01/api-2.json.php \
+            vendor/aws/aws-sdk-php/src/data/s3/2006-03-01/paginators-1.json.php \
+            vendor/aws/aws-sdk-php/src/data/manifest.json.php \
+            vendor/aws/aws-sdk-php/src/Signature/SignatureV4.php \
+            vendor/aws/aws-sdk-php/src/Multipart/UploadState.php \
+            vendor/aws/aws-sdk-php/src/Exception/AwsException.php; do
+            test -f "$f" || { echo "::error::Required AWS file missing: $f"; exit 1; }
+          done
+          for d in \
+            vendor/aws/aws-sdk-php/src/Api \
+            vendor/aws/aws-sdk-php/src/Credentials \
+            vendor/aws/aws-sdk-php/src/Endpoint \
+            vendor/aws/aws-sdk-php/src/EndpointV2 \
+            vendor/aws/aws-sdk-php/src/Retry \
+            vendor/aws/aws-sdk-php/src/Handler \
+            vendor/mtdowling/jmespath.php \
+            vendor/guzzlehttp/psr7 \
+            vendor/guzzlehttp/promises \
+            vendor/woocommerce/action-scheduler; do
+            test -d "$d" || { echo "::error::Required dependency missing: $d"; exit 1; }
+          done
+
+          echo "vendor files: $(find vendor -type f | wc -l)"
+          echo "vendor size:  $(du -sh vendor | cut -f1)"
+
+      # Prove the pruned SDK actually boots: construct the client exactly as
+      # includes/class-spaces-client.php does, then exercise presigning and the
+      # paginators (the two features most likely to break under pruning).
+      - name: Smoke-test the pruned AWS SDK
+        run: |
+          php -r '
+            require "vendor/autoload.php";
+            $c = new Aws\S3\S3Client([
+              "version" => "latest", "region" => "us-east-1",
+              "endpoint" => "https://nyc3.digitaloceanspaces.com",
+              "use_path_style_endpoint" => false,
+              "use_aws_shared_config_files" => false,
+              "credentials" => ["key" => "AKIAEXAMPLE", "secret" => "secretexample"],
+            ]);
+            foreach ([
+              "ListObjectsV2","ListMultipartUploads","AbortMultipartUpload",
+              "GetBucketLifecycleConfiguration","PutBucketLifecycleConfiguration",
+              "DeleteObjects","GetObject","PutObject",
+              "CreateMultipartUpload","UploadPart","CompleteMultipartUpload",
+            ] as $op) {
+              $c->getApi()->hasOperation($op) or exit("MISSING OPERATION: $op\n");
+            }
+            $u = (string) $c->createPresignedRequest(
+              $c->getCommand("GetObject", ["Bucket" => "b", "Key" => "k"]), "+3600 seconds"
+            )->getUri();
+            str_contains($u, "X-Amz-Signature=") or exit("presigning broken\n");
+            $c->getPaginator("ListObjectsV2", ["Bucket" => "b"]) instanceof Aws\ResultPaginator
+              or exit("paginator broken\n");
+            class_exists("Aws\S3\MultipartUploader") or exit("MultipartUploader missing\n");
+            class_exists("Aws\Ec2\Ec2Client") and exit("Ec2 survived the prune\n");
+            echo "pruned SDK smoke test OK\n";
+          '
 
       - name: Build plugin ZIP
         run: |
           PLUGIN_DIR="mighty-backup"
           mkdir -p "$PLUGIN_DIR"
-          rsync -a --exclude="$PLUGIN_DIR" --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='.gitignore' . "$PLUGIN_DIR/"
+          rsync -a \
+            --exclude="$PLUGIN_DIR" \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='.gitattributes' \
+            --exclude='.claude' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            --exclude='phpunit.xml' \
+            --exclude='vendor-dev' \
+            --exclude='.phpunit.result.cache' \
+            . "$PLUGIN_DIR/"
+          # composer.json / composer.lock stay in the ZIP on purpose: they are the
+          # repair path if a site's vendor/ is ever damaged (composer install --no-dev).
           zip -r mighty-backup.zip "$PLUGIN_DIR"
+          echo "ZIP size: $(du -h mighty-backup.zip | cut -f1)"
 
       - name: Get latest release tag
         id: tag

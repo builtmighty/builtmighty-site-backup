@@ -45,6 +45,25 @@ class Mighty_Backup_File_Archiver {
         // host rotates the file, causing fopen() to fail intermittently even
         // when is_readable() returns true. Keep this excluded by default.
         'wp-content/mysql.sql',
+
+        // This plugin's own Composer tree. These archives hydrate Codespaces
+        // rather than restore production, so Mighty Backup does not need to be
+        // functional inside the result — it will show its "missing dependencies"
+        // notice there, and `composer install --no-dev` rehydrates it from the
+        // composer.json/composer.lock that ship alongside.
+        //
+        // The pattern is deliberately "mighty-backup/vendor", NOT "vendor" and
+        // NOT the full "wp-content/plugins/mighty-backup/vendor":
+        //   - bare "vendor" would hit the segment branch in is_excluded() and
+        //     strip EVERY plugin's and theme's vendor dir site-wide.
+        //   - the full prefix only matches the prefix branch, so it silently
+        //     misses when WP_CONTENT_DIR is renamed or relocated inside ABSPATH.
+        // This form matches is_excluded()'s segment/suffix branches, so it works
+        // identically in stream_directory(), archive_split_content() and the
+        // shell-tar path, and because the directory entry itself matches, the
+        // RecursiveCallbackFilterIterator prunes the whole subtree instead of
+        // descending it.
+        'mighty-backup/vendor',
     ];
 
     private Mighty_Backup_Settings $settings;

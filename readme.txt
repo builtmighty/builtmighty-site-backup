@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.15.0
+Stable tag: 2.16.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,15 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 2.16.0 =
+**Pruned the bundled Composer dependencies — 5,193 files down to 720, and dev libraries no longer load on every request.**
+
+* **Stopped shipping 406 unused AWS services.** The bundled AWS SDK carried API models and client classes for all 412 AWS services (43 MB of JSON in `vendor/aws/aws-sdk-php/src/data/` alone) when the plugin only ever talks to S3. `composer.json` now declares `extra: {"aws/aws-sdk-php": ["S3"]}` and runs the SDK's own supported pruner, `Aws\Script\Composer\Composer::removeUnusedServices`, on `pre-autoload-dump`. `vendor/` drops from 5,193 files / 50.2 MB to 720 files / 4.9 MB. The AWS surface the plugin actually uses is unchanged: `S3Client`, `MultipartUploader` (including resume-from-state), the `ListObjectsV2` and `ListMultipartUploads` paginators, SigV4 presigned download URLs, and the lifecycle-policy calls.
+* **Dev dependencies no longer execute on production page loads.** PHPUnit, Mockery, Brain Monkey and friends were committed to `vendor/`, and because Composer records package bootstrap files in `vendor/composer/autoload_files.php`, PHPUnit's `Assert/Functions.php`, `Mockery.php`, Mockery's `helpers.php`, `deep_copy.php` and Brain Monkey's `api.php` were `include`d on **every** front-end and admin request — wasted I/O, and a collision risk since Mockery defines global `mock()`, `spy()` and `namedMock()` functions. That file is now down to 7 small polyfill entries with nothing dev-related. Dev dependencies install into a separate, git-ignored `vendor-dev/` tree (`COMPOSER_VENDOR_DIR=vendor-dev composer install`), so they cannot leak back into the shipped tree.
+* **Smaller autoloader parsed on every request.** `vendor/composer/autoload_static.php` shrinks from 415 KB to 62 KB and `autoload_classmap.php` from 384 KB to 55 KB (3,013 entries down to 499). The unused `autoload.classmap` entry for `includes/` was also removed — every plugin class is loaded by an explicit `require_once`, so it only ever added dead classmap entries.
+* **Backups no longer archive the plugin's own `vendor/` directory.** `Mighty_Backup_File_Archiver::DEFAULT_EXCLUSIONS` now contains `mighty-backup/vendor`, so the backup walker prunes that subtree instead of stat-ing, reading and gzipping thousands of dependency files into every archive — and then walking them a second time during archive verification. Note that Mighty Backup will report its dependencies as missing inside a Codespace built from one of these archives; `composer install --no-dev` in the plugin directory restores them, and `composer.json`/`composer.lock` still ship in the release ZIP for exactly that purpose.
+* **Added CI guards.** A new `vendor-guard` workflow fails a pull request if dev dependencies get committed, if unused AWS services reappear, if `autoload_files.php` regains a dev entry, if the committed classmap references deleted files, or if the tracked `vendor/` file count climbs back above 900. The release workflow now verifies the pruned tree and boots the SDK — constructing the client, presigning a URL and building both paginators — before it will publish a ZIP.
 
 = 2.15.0 =
 **Devcontainer updater improvements — three fixes to the Devcontainer tab's update flow.**
