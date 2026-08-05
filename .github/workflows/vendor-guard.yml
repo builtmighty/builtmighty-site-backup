@@ -1,0 +1,144 @@
+# Guards the COMMITTED vendor/ tree.
+#
+# vendor/ is deliberately committed (plugin-update-checker downloads the GitHub
+# source zipball, not the release asset), so the committed tree is what ships to
+# every site. This workflow makes "keep it pruned" a merge blocker rather than a
+# matter of developer discipline, and runs the test suite — which previously
+# never ran in CI at all.
+name: Vendor Guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # IMPORTANT: every check below runs against the committed tree, BEFORE any
+      # composer install. Installing first would mutate vendor/ and mask exactly
+      # the problem we are trying to catch.
+      - name: No dev dependencies committed
+        run: |
+          if git ls-files vendor \
+            | grep -Eq '^vendor/(phpunit|mockery|nikic|sebastian|hamcrest|phar-io|brain|antecedent|myclabs|theseer|doctrine)/'; then
+            echo "::error::Dev dependencies are committed to vendor/. Fix with: composer install --no-dev --optimize-autoloader"
+            git ls-files vendor \
+              | grep -E '^vendor/(phpunit|mockery|nikic|sebastian|hamcrest|phar-io|brain|antecedent|myclabs|theseer|doctrine)/' \
+              | head -20
+            exit 1
+          fi
+
+      - name: No dev files eagerly autoloaded on every request
+        run: |
+          if grep -qiE 'phpunit|mockery|deep_copy|brain/monkey|hamcrest' vendor/composer/autoload_files.php; then
+            echo "::error::vendor/composer/autoload_files.php eager-loads dev files on EVERY WordPress request:"
+            cat vendor/composer/autoload_files.php
+            exit 1
+          fi
+
+      - name: AWS SDK is pruned to S3
+        run: |
+          set -euo pipefail
+          for d in Ec2 CloudFront SageMaker DynamoDb data/ec2 data/cloudfront data/sagemaker; do
+            if [ -e "vendor/aws/aws-sdk-php/src/$d" ]; then
+              echo "::error::Unused AWS service committed: src/$d"
+              exit 1
+            fi
+          done
+
+      - name: Required AWS surface intact
+        run: |
+          set -euo pipefail
+          for f in \
+            vendor/aws/aws-sdk-php/src/S3/S3Client.php \
+            vendor/aws/aws-sdk-php/src/S3/MultipartUploader.php \
+            vendor/aws/aws-sdk-php/src/ResultPaginator.php \
+            vendor/aws/aws-sdk-php/src/data/s3/2006-03-01/api-2.json.php \
+            vendor/aws/aws-sdk-php/src/data/s3/2006-03-01/paginators-1.json.php \
+            vendor/aws/aws-sdk-php/src/data/manifest.json.php \
+            vendor/aws/aws-sdk-php/src/Signature/SignatureV4.php \
+            vendor/aws/aws-sdk-php/src/Multipart/UploadState.php \
+            vendor/aws/aws-sdk-php/src/Exception/AwsException.php; do
+            test -f "$f" || { echo "::error::Required AWS file missing: $f"; exit 1; }
+          done
+          for d in \
+            vendor/mtdowling/jmespath.php \
+            vendor/guzzlehttp/psr7 \
+            vendor/guzzlehttp/promises \
+            vendor/woocommerce/action-scheduler; do
+            test -d "$d" || { echo "::error::Required dependency missing: $d"; exit 1; }
+          done
+
+      - name: Vendor file-count ceiling
+        run: |
+          n=$(git ls-files vendor | wc -l)
+          echo "tracked vendor files: $n"
+          if [ "$n" -ge 900 ]; then
+            echo "::error::vendor/ regrew to $n tracked files (ceiling 900). Run: composer install --no-dev --optimize-autoloader"
+            exit 1
+          fi
+
+      - name: Plugin's own vendor is excluded from backup archives
+        run: |
+          if ! grep -q "'mighty-backup/vendor'" includes/class-file-archiver.php; then
+            echo "::error::DEFAULT_EXCLUSIONS no longer excludes the plugin's own vendor tree."
+            exit 1
+          fi
+          # A bare 'vendor' pattern would strip EVERY plugin's and theme's vendor
+          # dir from every backup, because is_excluded() matches whole segments.
+          if grep -qE "^\s*'vendor',\s*$" includes/class-file-archiver.php; then
+            echo "::error::A bare 'vendor' exclusion would strip every plugin's and theme's vendor dir site-wide."
+            exit 1
+          fi
+
+      - name: Committed autoloader matches committed tree
+        run: |
+          # Every classmap target must exist. A stale entry means the autoloader
+          # was dumped before the prune, which produces include() warnings at runtime.
+          php -r '
+            $m = require "vendor/composer/autoload_classmap.php";
+            $missing = [];
+            foreach ($m as $class => $file) {
+              if (!file_exists($file)) { $missing[$class] = $file; }
+            }
+            if ($missing) {
+              echo "::error::" . count($missing) . " classmap entries point at deleted files (autoloader dumped before prune):\n";
+              foreach (array_slice($missing, 0, 15, true) as $c => $f) { echo "  $c => $f\n"; }
+              exit(1);
+            }
+            echo "classmap OK: " . count($m) . " entries, all present\n";
+          '
+
+      # Only now install the dev tree — into a separate dir, so vendor/ is untouched.
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mbstring, openssl, simplexml, dom
+
+      - name: Install dev dependencies (vendor-dev)
+        run: composer install --no-interaction
+        env:
+          COMPOSER_VENDOR_DIR: vendor-dev
+
+      - name: vendor/ unchanged by the dev install
+        run: |
+          if ! git diff --quiet -- vendor; then
+            echo "::error::Installing dev dependencies modified vendor/. COMPOSER_VENDOR_DIR is not being honoured."
+            git diff --stat -- vendor | tail -20
+            exit 1
+          fi
+
+      # NON-BLOCKING for now. As of the vendor-prune change the suite has 4 errors
+      # and 14 failures that already existed on main (BackupManagerTest,
+      # DatabaseExporterResumableTest, PlaceholderRepairTest, SettingsTest) and are
+      # unrelated to vendor/. Making this blocking today would paint every PR red
+      # and train people to ignore the guard steps above, which ARE blocking.
+      # Once those tests are fixed, drop continue-on-error so regressions block.
+      - name: Run test suite (informational until pre-existing failures are fixed)
+        continue-on-error: true
+        run: vendor-dev/bin/phpunit --no-coverage

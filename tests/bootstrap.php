@@ -6,7 +6,32 @@
  * instantiated and tested without a running WordPress environment.
  */
 
-require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+/*
+ * Dev dependencies (PHPUnit, Brain Monkey, Mockery) install into vendor-dev/ so
+ * they can never leak into the committed vendor/ tree, where Composer would
+ * eagerly include them on every WordPress request. Prefer vendor-dev/ so a
+ * developer with both trees always gets the one that actually has PHPUnit.
+ */
+$mb_autoload = null;
+foreach ( [ '/vendor-dev/autoload.php', '/vendor/autoload.php' ] as $mb_candidate ) {
+    if ( file_exists( dirname( __DIR__ ) . $mb_candidate ) ) {
+        $mb_autoload = dirname( __DIR__ ) . $mb_candidate;
+        break;
+    }
+}
+
+if ( null === $mb_autoload ) {
+    fwrite(
+        STDERR,
+        "No Composer autoloader found.\n"
+        . "Install the dev dependencies first:\n"
+        . "  bash:       COMPOSER_VENDOR_DIR=vendor-dev composer install\n"
+        . "  PowerShell: \$env:COMPOSER_VENDOR_DIR=\"vendor-dev\"; composer install\n"
+    );
+    exit( 1 );
+}
+
+require_once $mb_autoload;
 
 // WordPress constants required by plugin files.
 defined( 'ABSPATH' )           || define( 'ABSPATH', dirname( __DIR__ ) . '/' );

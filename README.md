@@ -42,9 +42,59 @@ wp plugin install https://github.com/builtmighty/mighty-backup/releases/latest/d
 ## Installation
 
 1. Upload the plugin to `wp-content/plugins/mighty-backup`.
-2. Run `composer install` from the plugin directory.
-3. Activate the plugin in WordPress (or Network Activate on multisite).
-4. Go to **MightyBackup** in the admin menu and configure your DigitalOcean Spaces credentials.
+2. Activate the plugin in WordPress (or Network Activate on multisite).
+3. Go to **MightyBackup** in the admin menu and configure your DigitalOcean Spaces credentials.
+
+`vendor/` is committed, so no `composer install` is needed for a normal install. If `vendor/` is ever damaged, repair it with `composer install --no-dev --optimize-autoloader` from the plugin directory.
+
+## Local Development
+
+`vendor/` is **committed and pruned**, and dev dependencies install into a separate, git-ignored `vendor-dev/` tree. This matters: Composer records each package's bootstrap files in `vendor/composer/autoload_files.php`, and the plugin loads `vendor/autoload.php` on every request — so a dev-flavoured `vendor/` would `include` PHPUnit's assertion helpers, `Mockery.php` and Brain Monkey's `api.php` on every front-end page load, and Mockery would define global `mock()` / `spy()` / `namedMock()` functions that can collide with other plugins.
+
+**Install dev dependencies and run the tests:**
+
+```bash
+# bash
+COMPOSER_VENDOR_DIR=vendor-dev composer install
+vendor-dev/bin/phpunit
+```
+
+```powershell
+# PowerShell
+$env:COMPOSER_VENDOR_DIR = "vendor-dev"; composer install
+vendor-dev\bin\phpunit
+```
+
+`tests/bootstrap.php` prefers `vendor-dev/autoload.php` and falls back to `vendor/autoload.php`.
+
+**When a production dependency changes**, regenerate the shipped tree and commit it:
+
+```bash
+composer install --no-dev --optimize-autoloader   # note: no COMPOSER_VENDOR_DIR
+git add -A vendor composer.json composer.lock
+```
+
+That command also re-runs the AWS service pruner, so `vendor/` stays at ~720 files. The `vendor-guard` workflow fails the PR if dev dependencies get committed, if unused AWS services reappear, if `autoload_files.php` regains a dev entry, if the committed classmap points at deleted files, or if the tracked `vendor/` file count exceeds 900.
+
+### Bundled AWS SDK is pruned to S3 only
+
+`composer.json` declares which AWS services survive:
+
+```json
+"extra": { "aws/aws-sdk-php": ["S3"] }
+```
+
+and the SDK's own `Aws\Script\Composer\Composer::removeUnusedServices` runs on `pre-autoload-dump`, deleting the other 406 services' client and model directories. The pruner also force-keeps `Kms`, `SSO`, `SSOOIDC`, `Sts` and `Signin` (~171 KB), which the credential-provider chain can reach.
+
+> **The prune is one-way.** Composer decides what to install from `vendor/composer/installed.json`, not from what is on disk, so a plain `composer install` will **not** restore a deleted service. To add a service, list it in `extra` **and** run `composer reinstall aws/aws-sdk-php`. `rm -rf vendor/aws && composer install` is not reliable.
+
+> **The hook must stay `pre-autoload-dump`.** On `post-autoload-dump` the classmap is generated against the un-pruned tree, leaving ~2,500 entries pointing at deleted files and producing `include(): Failed opening` warnings in `debug.log`.
+
+### Why `vendor/` is committed
+
+The plugin auto-updates through [plugin-update-checker](https://github.com/YahnisElsts/plugin-update-checker), configured with `setBranch('main')` and **without** `enableReleaseAssets()`. With that configuration PUC resolves the latest release and downloads GitHub's auto-generated **source zipball** — not the `mighty-backup.zip` release asset. So the committed tree is what every updating site receives, and removing `vendor/` from git would leave updated sites with no AWS SDK and no Action Scheduler, silently stopping backups.
+
+Note also that PUC's `REQUIRE_RELEASE_ASSETS` is not strict: when no asset matches it returns `null` and the checker falls through to the latest **tag**, which is again a source zipball. Keeping `vendor/` committed makes every channel — release zipball, tag zipball, branch archive, CI release asset, and `git clone` — produce an identical working plugin, and keeps rollback a plain `git revert` plus a patch release.
 
 ## Configuration
 
@@ -76,12 +126,19 @@ The following paths are always excluded from file backups:
 - `wp-content/backup-db`
 - `.git`
 - `node_modules`
+- `.devcontainer` (owned by the GitHub repo, which is the source of truth)
 - `wp-content/updraft` (UpdraftPlus)
 - `wp-content/ai1wm-backups` (All-in-One WP Migration)
 - `wp-content/backups-dup-lite` (Duplicator)
 - `wp-content/backups-dup-pro` (Duplicator Pro)
 - `wp-content/object-cache.php` (production drop-in)
 - `wp-content/advanced-cache.php` (production drop-in)
+- `wp-content/mysql.sql` (hosting-managed SQL snapshot — redundant and racy)
+- `mighty-backup/vendor` (this plugin's own Composer tree — see note below)
+
+> **Note on `mighty-backup/vendor`.** These archives exist to hydrate Codespaces, not to restore production, so the plugin's own dependencies are not archived — that avoids stat-ing, reading and gzipping hundreds of dependency files into every archive, and walking them again during archive verification. Consequence: Mighty Backup will report its dependencies as missing inside a Codespace built from one of these archives. Run `composer install --no-dev` in the plugin directory to restore them; `composer.json` and `composer.lock` ship in the release ZIP for exactly this purpose.
+>
+> The pattern is `mighty-backup/vendor` rather than a bare `vendor` on purpose: exclusions match a whole path segment anywhere in the path, so a bare `vendor` would strip **every** plugin's and theme's dependencies from every backup.
 
 ## WP-CLI Commands
 

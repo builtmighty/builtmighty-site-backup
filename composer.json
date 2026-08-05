@@ -12,14 +12,25 @@
         "phpunit/phpunit": "^10.0",
         "brain/monkey": "^2.6"
     },
-    "autoload": {
-        "classmap": [
-            "includes/"
+    "extra": {
+        "_comment": [
+            "aws/aws-sdk-php lists the ONLY AWS service namespaces kept in vendor/.",
+            "Aws\\Script\\Composer\\Composer::removeUnusedServices deletes every other",
+            "src/<Client> and src/data/<model> pair, which is what keeps vendor/ small.",
+            "The pruner also force-keeps Kms, SSO, SSOOIDC, Sts and Signin (~171 KB).",
+            "IMPORTANT: the prune is one-way. Composer decides what to install from",
+            "vendor/composer/installed.json, not from file presence, so a plain",
+            "`composer install` will NOT restore a deleted service. To add a service,",
+            "list it here AND run `composer reinstall aws/aws-sdk-php`."
+        ],
+        "aws/aws-sdk-php": [
+            "S3"
         ]
     },
     "scripts": {
+        "pre-autoload-dump": "Aws\\Script\\Composer\\Composer::removeUnusedServices",
         "test": "phpunit",
-        "test:local": "\"C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.1.29+0/bin/win64/php.exe\" -c \"C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.1.29+0/bin/win64/php.ini-development\" -d extension_dir=\"C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.1.29+0/bin/win64/ext\" -d extension=mbstring -d extension=openssl vendor/bin/phpunit"
+        "test:local": "\"C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.1.29+0/bin/win64/php.exe\" -c \"C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.1.29+0/bin/win64/php.ini-development\" -d extension_dir=\"C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.1.29+0/bin/win64/ext\" -d extension=mbstring -d extension=openssl vendor-dev/bin/phpunit"
     },
     "config": {
         "optimize-autoloader": true,

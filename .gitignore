@@ -1,1 +1,15 @@
 .phpunit.result.cache
+
+# Dev dependencies install here, NOT into vendor/, so that PHPUnit, Mockery and
+# Brain Monkey can never leak into the committed/shipped tree — where Composer
+# would eagerly include them via vendor/composer/autoload_files.php on every
+# single WordPress request. See README "Local development".
+#   COMPOSER_VENDOR_DIR=vendor-dev composer install
+/vendor-dev/
+
+# NOTE: vendor/ is deliberately NOT ignored. The plugin auto-updates via
+# plugin-update-checker, which downloads the GitHub *source zipball* of the
+# latest release (enableReleaseAssets() is not used), so vendor/ must be present
+# in the git tree or updated sites lose the AWS SDK and stop backing up.
+# Keep it committed, and keep it pruned:
+#   composer install --no-dev --optimize-autoloader
