@@ -253,12 +253,20 @@ class Mighty_Backup_Spaces_Client {
      * client_path prefix. Called from the daily retention cron as a backstop
      * for failures of both per-upload abort and the bucket lifecycle rule.
      *
+     * @param int         $max_age_hours Abort uploads initiated before this.
+     * @param string|null $object_stem   When set, only uploads whose filename
+     *                                   starts with "<stem>-" are eligible.
+     *                                   Required under a multisource prefix,
+     *                                   where siblings share client_path and an
+     *                                   unscoped sweep would abort another
+     *                                   site's in-flight upload.
      * @return array{aborted:int, errors:string[]} aborted = abort count.
      */
-    public function sweep_orphan_multiparts( int $max_age_hours = 24 ): array {
+    public function sweep_orphan_multiparts( int $max_age_hours = 24, ?string $object_stem = null ): array {
         $cutoff  = time() - max( 1, $max_age_hours ) * 3600;
         $aborted = 0;
         $errors  = [];
+        $scope   = ( $object_stem !== null && $object_stem !== '' ) ? $object_stem . '-' : null;
 
         try {
             $paginator = $this->client->getPaginator( 'ListMultipartUploads', [
@@ -268,6 +276,10 @@ class Mighty_Backup_Spaces_Client {
 
             foreach ( $paginator as $page ) {
                 foreach ( $page['Uploads'] ?? [] as $upload ) {
+                    if ( $scope !== null && ! str_starts_with( basename( (string) ( $upload['Key'] ?? '' ) ), $scope ) ) {
+                        continue; // Belongs to a sibling site sharing this prefix.
+                    }
+
                     $initiated = $upload['Initiated'] ?? null;
                     if ( $initiated instanceof \DateTimeInterface ) {
                         $ts = $initiated->getTimestamp();

@@ -278,7 +278,11 @@ class Mighty_Backup_CLI_Command {
             $settings        = new Mighty_Backup_Settings();
             $client          = new Mighty_Backup_Spaces_Client( $settings );
             $retention_count = (int) $settings->get( 'retention_count', 7 );
-            $retention       = new Mighty_Backup_Retention_Manager( $client, $retention_count );
+            $retention       = new Mighty_Backup_Retention_Manager(
+                $client,
+                $retention_count,
+                $settings->get_object_stem()
+            );
 
             WP_CLI::log( sprintf( 'Running retention cleanup (keeping last %d backups)...', $retention_count ) );
 

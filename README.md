@@ -223,7 +223,12 @@ Writable keys: `spaces_access_key`, `spaces_secret_key`, `spaces_endpoint`,
 `spaces_bucket`, `client_path`, `hosting_provider`, `schedule_frequency`,
 `schedule_time`, `schedule_day`, `retention_count`, `extra_exclusions`,
 `notify_on_failure`, `notification_email`, `streamlined_mode`, `github_owner`,
-`github_repo`, `github_pat`.
+`github_repo`, `github_pat`, `php_version`, `db_engine`, `db_version`,
+`timezone`, `multisource`, `multisource_name`.
+
+The last six shape the Codespace config payload. All are optional — leaving one
+blank reports the value detected from the live server. See
+[Codespace Config](#codespace-config).
 
 ### Devcontainer
 
@@ -329,9 +334,82 @@ GET /wp-json/mighty-backup/v1/codespace-config
 Authorization: Bearer <api-key>
 ```
 
-Returns encrypted credentials and backup configuration for the Codespace bootstrap pipeline. HTTPS only, rate-limited to 10 requests per 60 seconds per IP.
+Returns credentials and backup configuration for the Codespace bootstrap pipeline. HTTPS only, rate-limited to 10 requests per 60 seconds per IP. Note that the Spaces secret is returned **decrypted** — the API key is effectively a credential, so treat it as one.
 
 A **Bootstrap Key** (available on the settings page) combines the site URL and API key into a single Base64-encoded secret for Codespace setup.
+
+A flat JSON object, HTTP 200. Every value is a string except `multisource`.
+
+```json
+{
+  "do_spaces_key":      "DO00ABCDEFGHIJKLMNOP",
+  "do_spaces_secret":   "wJalrXUtnFEMI0K7MDENGbPxRfiCYEXAMPLEKEY",
+  "do_spaces_endpoint": "nyc3.digitaloceanspaces.com",
+  "do_spaces_bucket":   "builtmighty-backups",
+
+  "client_path":        "acme-store",
+  "repository":         "acme-store",
+  "hosting_provider":   "generic",
+  "remote_domain":      "acmestore.com",
+
+  "php_version":        "8.2",
+  "db_engine":          "mysql",
+  "db_version":         "8.0.35",
+
+  "multisource":        false,
+  "timezone":           "America/Denver",
+  "platform":           "wordpress",
+  "source_name":        "backup"
+}
+```
+
+| Field | Source | Consumed by |
+|---|---|---|
+| `do_spaces_key` | `spaces_access_key` | `~/.s3cfg` → `access_key` |
+| `do_spaces_secret` | `spaces_secret_key` (decrypted) | `~/.s3cfg` → `secret_key` |
+| `do_spaces_endpoint` | `spaces_endpoint`, normalized to a bare host | `~/.s3cfg` → `host_base`, and expanded into `host_bucket = %(bucket)s.<endpoint>` |
+| `do_spaces_bucket` | `spaces_bucket` | `s3://<bucket>/<client_path>/…` |
+| `client_path` | `client_path` (the repo slug) | The bucket prefix holding `databases/` and `files/` |
+| `repository` | Same value as `client_path` | Retained for bootstraps predating the 2.10.0 rename |
+| `hosting_provider` | `hosting_provider`, lowercased, defaults to `generic` | Only `pressable` changes behaviour (symlink repair + plugin reconcile) |
+| `remote_domain` | Host of `get_site_url()` | URL-rewrite source and uploads-proxy target |
+| `php_version` | `php_version` override, else detected `major.minor` | `php` version the container is built for (8.1–8.4) |
+| `db_engine` | `db_engine` override, else detected | Which baked engine starts — `mysql` or `mariadb` |
+| `db_version` | `db_version` override, else detected | Advisory; used to infer the engine when it is unset |
+| `multisource` | `multisource` | Object-naming convention — see below. A real JSON boolean, not a string |
+| `timezone` | `timezone` override, else detected IANA zone (falls back to `UTC`) | `date.timezone` |
+| `platform` | Hardcoded | Recorded only |
+| `source_name` | `Mighty_Backup_Settings::get_object_stem()` | The name this site's objects are keyed by — `backup` unless multisource is on |
+
+The five environment fields (`php_version`, `db_engine`, `db_version`, `timezone`,
+and the multisource site name) are auto-detected from the live server by
+`Mighty_Backup_Environment`. Setting the matching option on the **Codespace** tab
+overrides detection; leaving it blank reports the detected value, which is what
+the field's placeholder shows.
+
+#### Object layout
+
+```
+s3://builtmighty-backups/acme-store/databases/backup-2026-08-26-021500.sql.gz
+s3://builtmighty-backups/acme-store/files/backup-2026-08-26-021500.tar.gz
+```
+
+With `multisource` enabled, several sites share one repository — and therefore
+one bucket prefix — and are keyed by name instead of the generic `backup` stem:
+
+```
+s3://builtmighty-backups/acme-store/databases/store-us-2026-08-26-021500.sql.gz
+s3://builtmighty-backups/acme-store/databases/store-eu-2026-08-25-013000.sql.gz
+```
+
+Retention lists objects with the stem in the prefix (`databases/<stem>-`), so one
+site can never prune a sibling's history. Two things follow from that:
+
+- Single-source behaviour is unchanged — the default stem makes the prefix
+  `databases/backup-`, which every previously-uploaded object already matches.
+- Enabling multisource leaves existing `backup-*` objects in place permanently.
+  They fall outside retention and are never deleted; prune them by hand if they
+  are no longer wanted.
 
 ### Authed Healthcheck
 

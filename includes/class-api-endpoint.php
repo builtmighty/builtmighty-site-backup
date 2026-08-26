@@ -135,21 +135,84 @@ class Mighty_Backup_Api_Endpoint {
 		}
 
 		// Build and return configuration payload.
+		return new WP_REST_Response( self::build_config_payload(), 200 );
+	}
+
+	/**
+	 * Build the /codespace-config payload.
+	 *
+	 * Every value is a string except `multisource`, which is a real JSON boolean.
+	 * The five environment fields report the configured override when one is set
+	 * and the detected value otherwise.
+	 *
+	 * Split out from handle_request() so the contract can be asserted in tests
+	 * without standing up a REST request.
+	 *
+	 * @return array The flat config object.
+	 */
+	public static function build_config_payload(): array {
 		$settings = new Mighty_Backup_Settings();
 		$all      = $settings->get_all();
 
-		$data = [
-			'do_spaces_key'      => $all['spaces_access_key'] ?? '',
-			'do_spaces_secret'   => $settings->get_secret_key(),
-			'do_spaces_endpoint' => $all['spaces_endpoint'] ?? '',
-			'do_spaces_bucket'   => $all['spaces_bucket'] ?? '',
-			'repository'         => $all['client_path'] ?? '',
-			'hosting_provider'   => $all['hosting_provider'] ?? '',
-			'remote_domain'      => wp_parse_url( get_site_url(), PHP_URL_HOST ),
-			'platform'           => 'wordpress',
-		];
+		$client_path = (string) ( $all['client_path'] ?? '' );
+		$detected_db = Mighty_Backup_Environment::db_server();
 
-		return new WP_REST_Response( $data, 200 );
+		// Blank override => report what the live server actually is. An override
+		// that is present but malformed is also ignored: the settings form and
+		// the CLI both reject bad values, but the option can be written by other
+		// means, and a garbage field here would break the bootstrap silently.
+		$php_version = (string) ( $all['php_version'] ?? '' );
+		if ( ! Mighty_Backup_Environment::is_valid_php_version( $php_version ) ) {
+			$php_version = Mighty_Backup_Environment::php_version();
+		}
+
+		$db_engine = strtolower( (string) ( $all['db_engine'] ?? '' ) );
+		if ( ! Mighty_Backup_Environment::is_valid_db_engine( $db_engine ) ) {
+			$db_engine = $detected_db['engine'];
+		}
+
+		$db_version = (string) ( $all['db_version'] ?? '' ) ?: $detected_db['version'];
+
+		$timezone = (string) ( $all['timezone'] ?? '' );
+		if ( ! Mighty_Backup_Environment::is_valid_timezone( $timezone ) ) {
+			$timezone = Mighty_Backup_Environment::timezone();
+		}
+
+		// Hosting provider defaults to 'generic' — only 'pressable' changes the
+		// bootstrap's behaviour, so an unset value is the generic path.
+		$provider = strtolower( trim( (string) ( $all['hosting_provider'] ?? '' ) ) );
+		if ( $provider === '' ) {
+			$provider = 'generic';
+		}
+
+		return [
+			'do_spaces_key'      => (string) ( $all['spaces_access_key'] ?? '' ),
+			'do_spaces_secret'   => (string) $settings->get_secret_key(),
+			// Host only, no scheme — the bootstrap also expands this into
+			// host_bucket = %(bucket)s.<endpoint>, which needs a bare host.
+			'do_spaces_endpoint' => Mighty_Backup_Environment::normalize_endpoint( (string) ( $all['spaces_endpoint'] ?? '' ) ),
+			'do_spaces_bucket'   => (string) ( $all['spaces_bucket'] ?? '' ),
+
+			'client_path'        => $client_path,
+			// Retained alongside client_path: bootstraps released before the
+			// rename still read `repository`.
+			'repository'         => $client_path,
+			'hosting_provider'   => $provider,
+			'remote_domain'      => (string) wp_parse_url( get_site_url(), PHP_URL_HOST ),
+
+			'php_version'        => $php_version,
+			'db_engine'          => $db_engine,
+			'db_version'         => $db_version,
+
+			'multisource'        => ! empty( $all['multisource'] ),
+			'timezone'           => $timezone,
+			'platform'           => 'wordpress',
+
+			// The name this site's objects are keyed by under a shared prefix
+			// ('backup' when multisource is off). Sibling sites share a repo, so
+			// the bootstrap can't derive this from client_path.
+			'source_name'        => $settings->get_object_stem(),
+		];
 	}
 
 	/**

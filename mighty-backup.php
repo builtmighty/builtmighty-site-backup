@@ -3,7 +3,7 @@
  * Plugin Name: Mighty Backup
  * Plugin URI: https://github.com/builtmighty/mighty-backup
  * Description: Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand backups of the database and file system for use with the staged-loader Codespace pipeline.
- * Version: 2.16.0
+ * Version: 2.17.0
  * Author: Built Mighty
  * Author URI: https://builtmighty.com
  * License: GPL-2.0-or-later
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'MIGHTY_BACKUP_VERSION', '2.16.0' );
+define( 'MIGHTY_BACKUP_VERSION', '2.17.0' );
 define( 'MIGHTY_BACKUP_FILE', __FILE__ );
 define( 'MIGHTY_BACKUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'MIGHTY_BACKUP_URL', plugin_dir_url( __FILE__ ) );
@@ -81,6 +81,7 @@ require_once MIGHTY_BACKUP_DIR . 'includes/functions.php';
 
 // Plugin classes.
 require_once MIGHTY_BACKUP_DIR . 'includes/class-error-translator.php';
+require_once MIGHTY_BACKUP_DIR . 'includes/class-environment.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-logger.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-log-stream.php';
 require_once MIGHTY_BACKUP_DIR . 'includes/class-settings.php';
