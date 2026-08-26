@@ -530,6 +530,155 @@ $recent              = $history_result['items'];
 
             <?php submit_button(); ?>
         </div><!-- /devcontainer (github settings) -->
+
+        <?php
+        // Codespace environment. Every field here is an override: blank means
+        // "report what the live server actually is", which is what the
+        // placeholders show. Rendered as a second panel on the Codespace tab
+        // because that tab's other sections sit outside this form.
+        $detected_db = Mighty_Backup_Environment::db_server();
+        $detected_php = Mighty_Backup_Environment::php_version();
+        $detected_tz  = Mighty_Backup_Environment::timezone();
+        $detected_db_label = $detected_db['version']
+            ? $detected_db['engine'] . ' ' . $detected_db['version']
+            : $detected_db['engine'];
+        $derived_stem = sanitize_title( (string) wp_parse_url( get_site_url(), PHP_URL_HOST ) );
+        ?>
+        <div class="mb-tab-panel" data-tab="codespace">
+            <h2><?php esc_html_e( 'Codespace Environment', 'mighty-backup' ); ?></h2>
+            <p class="description">
+                <?php esc_html_e( 'These values are reported to the Codespace bootstrap so it can build a matching container. Leave a field blank to send the detected value shown in it.', 'mighty-backup' ); ?>
+            </p>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label for="bm_php_version"><?php esc_html_e( 'PHP Version', 'mighty-backup' ); ?></label>
+                        <?php mighty_backup_help_icon( sprintf(
+                            /* translators: %s: comma-separated list of supported PHP versions */
+                            __( 'Major.minor only, e.g. 8.2. The Codespace images are built for %s; anything else falls back to the default with a warning. Leave blank to report this server\'s version.', 'mighty-backup' ),
+                            implode( ', ', Mighty_Backup_Environment::SUPPORTED_PHP )
+                        ) ); ?>
+                    </th>
+                    <td>
+                        <input type="text" id="bm_php_version"
+                               name="bm_backup_settings[php_version]"
+                               value="<?php echo esc_attr( $settings['php_version'] ); ?>"
+                               class="small-text"
+                               placeholder="<?php echo esc_attr( $detected_php ); ?>" />
+                        <p class="description">
+                            <?php
+                            /* translators: %s: detected PHP version */
+                            printf( esc_html__( 'Detected: %s', 'mighty-backup' ), '<code>' . esc_html( $detected_php ) . '</code>' );
+                            ?>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">
+                        <label for="bm_db_engine"><?php esc_html_e( 'Database Engine', 'mighty-backup' ); ?></label>
+                        <?php mighty_backup_help_icon( __( 'Which database server the Codespace starts. Detected from the live connection — only override it when this server does not match what the restored site should run on.', 'mighty-backup' ) ); ?>
+                    </th>
+                    <td>
+                        <select id="bm_db_engine" name="bm_backup_settings[db_engine]">
+                            <option value="" <?php selected( $settings['db_engine'], '' ); ?>>
+                                <?php
+                                /* translators: %s: detected engine and version, e.g. "mariadb 10.6.16" */
+                                printf( esc_html__( '— Detected (%s) —', 'mighty-backup' ), esc_html( $detected_db_label ) );
+                                ?>
+                            </option>
+                            <option value="mysql" <?php selected( $settings['db_engine'], 'mysql' ); ?>>
+                                <?php esc_html_e( 'MySQL', 'mighty-backup' ); ?>
+                            </option>
+                            <option value="mariadb" <?php selected( $settings['db_engine'], 'mariadb' ); ?>>
+                                <?php esc_html_e( 'MariaDB', 'mighty-backup' ); ?>
+                            </option>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">
+                        <label for="bm_db_version"><?php esc_html_e( 'Database Version', 'mighty-backup' ); ?></label>
+                        <?php mighty_backup_help_icon( __( 'Advisory only — the bootstrap uses it to infer the engine when that is not set. Leave blank to report this server\'s version.', 'mighty-backup' ) ); ?>
+                    </th>
+                    <td>
+                        <input type="text" id="bm_db_version"
+                               name="bm_backup_settings[db_version]"
+                               value="<?php echo esc_attr( $settings['db_version'] ); ?>"
+                               class="regular-text"
+                               placeholder="<?php echo esc_attr( $detected_db['version'] ); ?>" />
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">
+                        <label for="bm_timezone"><?php esc_html_e( 'Timezone', 'mighty-backup' ); ?></label>
+                        <?php mighty_backup_help_icon( __( 'Sets date.timezone in the Codespace. Must be an IANA zone name — sites configured with a bare UTC offset have no zone name to report, so this falls back to UTC unless you pick one here.', 'mighty-backup' ) ); ?>
+                    </th>
+                    <td>
+                        <select id="bm_timezone" name="bm_backup_settings[timezone]">
+                            <option value="" <?php selected( $settings['timezone'], '' ); ?>>
+                                <?php
+                                /* translators: %s: detected IANA timezone */
+                                printf( esc_html__( '— Detected (%s) —', 'mighty-backup' ), esc_html( $detected_tz ) );
+                                ?>
+                            </option>
+                            <?php
+                            // Core's zone list lives in wp-admin/includes/template.php.
+                            // Guarded so an unusual include context degrades to
+                            // "keep what's saved" instead of fatalling.
+                            if ( function_exists( 'wp_timezone_choice' ) ) {
+                                echo wp_timezone_choice( $settings['timezone'] );
+                            } elseif ( ! empty( $settings['timezone'] ) ) {
+                                printf(
+                                    '<option value="%1$s" selected>%1$s</option>',
+                                    esc_attr( $settings['timezone'] )
+                                );
+                            }
+                            ?>
+                        </select>
+                    </td>
+                </tr>
+            </table>
+
+            <h2><?php esc_html_e( 'Multisource Bucket', 'mighty-backup' ); ?></h2>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Shared Prefix', 'mighty-backup' ); ?></th>
+                    <td>
+                        <label for="bm_multisource">
+                            <input type="checkbox" id="bm_multisource"
+                                   name="bm_backup_settings[multisource]"
+                                   value="1" <?php checked( ! empty( $settings['multisource'] ) ); ?> />
+                            <?php esc_html_e( 'Several sites share this repository and Spaces path', 'mighty-backup' ); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e( 'New backups are named after this site instead of the generic "backup" stem, so siblings under the same path can be told apart:', 'mighty-backup' ); ?>
+                        </p>
+                        <p class="description">
+                            <code><?php echo esc_html( ( $settings['client_path'] ?: 'client-repo' ) . '/databases/' . $settings_obj->get_object_stem() . '-2026-08-26-021500.sql.gz' ); ?></code>
+                        </p>
+                        <p class="description">
+                            <?php esc_html_e( 'Retention only ever prunes objects matching this site\'s own name, so a sibling can never reap this site\'s history. Backups written before you enable this keep their "backup-" names, stay in the bucket, and fall outside retention — delete them by hand if you no longer want them.', 'mighty-backup' ); ?>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">
+                        <label for="bm_multisource_name"><?php esc_html_e( 'Site Name', 'mighty-backup' ); ?></label>
+                        <?php mighty_backup_help_icon( __( 'The name this site\'s backup objects are keyed by, and the name the Codespace bootstrap looks for. Defaults to a slug of the site domain. Changing it orphans previously-uploaded objects under the old name.', 'mighty-backup' ) ); ?>
+                    </th>
+                    <td>
+                        <input type="text" id="bm_multisource_name"
+                               name="bm_backup_settings[multisource_name]"
+                               value="<?php echo esc_attr( $settings['multisource_name'] ); ?>"
+                               class="regular-text"
+                               placeholder="<?php echo esc_attr( $derived_stem ); ?>" />
+                        <p class="description"><?php esc_html_e( 'Only used when the option above is enabled. Leave blank to use a slug of this site\'s domain.', 'mighty-backup' ); ?></p>
+                    </td>
+                </tr>
+            </table>
+
+            <?php submit_button(); ?>
+        </div><!-- /codespace (environment settings) -->
     </form>
 
     <!-- Devcontainer Tab — Update Section (outside form, AJAX-driven) -->

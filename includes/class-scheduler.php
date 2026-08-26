@@ -172,7 +172,11 @@ class Mighty_Backup_Scheduler {
             }
 
             $client    = new Mighty_Backup_Spaces_Client( $settings );
-            $retention = new Mighty_Backup_Retention_Manager( $client, $retention_count );
+            $retention = new Mighty_Backup_Retention_Manager(
+                $client,
+                $retention_count,
+                $settings->get_object_stem()
+            );
             $pruned    = $retention->prune();
 
             $result['databases_deleted'] = (int) ( $pruned['databases_deleted'] ?? 0 );
@@ -188,7 +192,7 @@ class Mighty_Backup_Scheduler {
             // Sweep multipart uploads older than 24h whose abort got missed
             // (worker SIGKILL during upload, lifecycle rule absent or stale).
             // Each one is otherwise charged for storage indefinitely.
-            $swept = $client->sweep_orphan_multiparts( 24 );
+            $swept = $client->sweep_orphan_multiparts( 24, $settings->get_object_stem() );
             $result['multiparts_aborted'] = (int) ( $swept['aborted'] ?? 0 );
             if ( ! empty( $swept['aborted'] ) ) {
                 Mighty_Backup_Log_Stream::add( sprintf(

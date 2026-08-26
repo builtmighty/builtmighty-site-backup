@@ -95,10 +95,16 @@ class Mighty_Backup_Manager {
         // Build the list of steps to execute based on type.
         $steps = $this->get_steps_for_type( $type );
 
+        // Resolve the object-name stem once, up front. Reading it per upload
+        // step would let a mid-backup settings change split the DB and files
+        // archives across two naming conventions.
+        $object_stem = ( new Mighty_Backup_Settings() )->get_object_stem();
+
         $state = [
             'type'             => $type,
             'trigger'          => $trigger,
             'timestamp'        => $timestamp,
+            'object_stem'      => $object_stem,
             'log_id'           => null,
             'status'           => 'pending',
             'current_step'     => $steps[0],
@@ -807,9 +813,10 @@ class Mighty_Backup_Manager {
             $settings = new Mighty_Backup_Settings();
             $client   = new Mighty_Backup_Spaces_Client( $settings );
 
+            $stem       = $this->get_object_stem( $state );
             $remote_key = $client->upload(
                 $state['db_local_path'],
-                "databases/backup-{$state['timestamp']}.sql.gz"
+                "databases/{$stem}-{$state['timestamp']}.sql.gz"
             );
 
             $state['db_remote_key'] = $remote_key;
@@ -855,9 +862,10 @@ class Mighty_Backup_Manager {
             $settings = new Mighty_Backup_Settings();
             $client   = new Mighty_Backup_Spaces_Client( $settings );
 
+            $stem       = $this->get_object_stem( $state );
             $remote_key = $client->upload(
                 $state['files_local_path'],
-                "files/backup-{$state['timestamp']}.tar.gz"
+                "files/{$stem}-{$state['timestamp']}.tar.gz"
             );
 
             $state['files_remote_key'] = $remote_key;
@@ -901,7 +909,11 @@ class Mighty_Backup_Manager {
             $settings        = new Mighty_Backup_Settings();
             $client          = new Mighty_Backup_Spaces_Client( $settings );
             $retention_count = (int) $settings->get( 'retention_count', 7 );
-            $retention       = new Mighty_Backup_Retention_Manager( $client, $retention_count );
+            $retention       = new Mighty_Backup_Retention_Manager(
+                $client,
+                $retention_count,
+                $this->get_object_stem( $state )
+            );
             $retention->prune();
 
         } catch ( \Exception $e ) {
@@ -1347,6 +1359,19 @@ class Mighty_Backup_Manager {
                 size_format( $required )
             ) );
         }
+    }
+
+    /**
+     * The object-name stem for this run, as claimed at start().
+     *
+     * A backup that was already in flight when the plugin updated has no
+     * `object_stem` in its state, so fall back to the historical stem rather
+     * than re-reading settings — that keeps its two archives paired and keeps
+     * retention pointed at the same keys the upload steps wrote.
+     */
+    private function get_object_stem( array $state ): string {
+        $stem = (string) ( $state['object_stem'] ?? '' );
+        return $stem !== '' ? $stem : Mighty_Backup_Settings::DEFAULT_OBJECT_STEM;
     }
 
     /**

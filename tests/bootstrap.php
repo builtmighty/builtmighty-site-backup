@@ -43,6 +43,10 @@ defined( 'DB_USER' )           || define( 'DB_USER', 'root' );
 defined( 'DB_PASSWORD' )       || define( 'DB_PASSWORD', '' );
 defined( 'DB_NAME' )           || define( 'DB_NAME', 'wordpress' );
 
+// Time constants WordPress defines in wp-includes/default-constants.php.
+defined( 'MINUTE_IN_SECONDS' ) || define( 'MINUTE_IN_SECONDS', 60 );
+defined( 'HOUR_IN_SECONDS' )   || define( 'HOUR_IN_SECONDS', 60 * MINUTE_IN_SECONDS );
+
 // wpdb output-format constants used by tests that exercise paginated queries.
 defined( 'ARRAY_A' ) || define( 'ARRAY_A', 'ARRAY_A' );
 defined( 'ARRAY_N' ) || define( 'ARRAY_N', 'ARRAY_N' );

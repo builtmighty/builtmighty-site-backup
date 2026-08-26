@@ -12,6 +12,12 @@ class Mighty_Backup_Settings {
     const OPTION_KEY = 'bm_backup_settings';
 
     /**
+     * Object-name stem used when multisource is off — the historical layout,
+     * `<client_path>/databases/backup-<timestamp>.sql.gz`.
+     */
+    const DEFAULT_OBJECT_STEM = 'backup';
+
+    /**
      * Metadata for all writable settings keys.
      *
      * Keys are the CLI/user-facing names. Encrypted fields use the plaintext
@@ -25,6 +31,14 @@ class Mighty_Backup_Settings {
         'spaces_bucket'      => [ 'type' => 'string', 'encrypted' => false, 'storage' => 'spaces_bucket' ],
         'client_path'        => [ 'type' => 'string', 'encrypted' => false, 'storage' => 'client_path' ],
         'hosting_provider'   => [ 'type' => 'enum',   'enum' => [ '', 'pressable', 'generic' ], 'storage' => 'hosting_provider' ],
+        // Codespace environment. All five are overrides — blank means "detect
+        // at request time" (see Mighty_Backup_Environment).
+        'php_version'        => [ 'type' => 'php_version', 'encrypted' => false, 'storage' => 'php_version' ],
+        'db_engine'          => [ 'type' => 'enum',   'enum' => [ '', 'mysql', 'mariadb' ], 'storage' => 'db_engine' ],
+        'db_version'         => [ 'type' => 'string', 'encrypted' => false, 'storage' => 'db_version' ],
+        'timezone'           => [ 'type' => 'timezone', 'encrypted' => false, 'storage' => 'timezone' ],
+        'multisource'        => [ 'type' => 'bool',   'storage' => 'multisource' ],
+        'multisource_name'   => [ 'type' => 'slug',   'encrypted' => false, 'storage' => 'multisource_name' ],
         'schedule_frequency' => [ 'type' => 'enum',   'enum' => [ 'daily', 'twicedaily', 'weekly' ], 'storage' => 'schedule_frequency' ],
         'schedule_time'      => [ 'type' => 'time',   'storage' => 'schedule_time' ],
         'schedule_day'       => [ 'type' => 'enum',   'enum' => [ 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday' ], 'storage' => 'schedule_day' ],
@@ -199,7 +213,12 @@ class Mighty_Backup_Settings {
         } else {
             $sanitized['spaces_access_key'] = $current['spaces_access_key'] ?? '';
         }
-        $sanitized['spaces_endpoint']   = sanitize_text_field( $input['spaces_endpoint'] ?? '' );
+        // Endpoint is stored as a bare host. Spaces_Client builds its endpoint
+        // as 'https://' . $value, so a pasted "https://nyc3…" would otherwise
+        // produce "https://https://nyc3…" and break every S3 call.
+        $sanitized['spaces_endpoint']   = Mighty_Backup_Environment::normalize_endpoint(
+            sanitize_text_field( $input['spaces_endpoint'] ?? '' )
+        );
         $sanitized['spaces_bucket']     = sanitize_text_field( $input['spaces_bucket'] ?? '' );
         $sanitized['client_path']       = $this->extract_repo_slug( sanitize_text_field( $input['client_path'] ?? '' ) );
 
@@ -234,6 +253,25 @@ class Mighty_Backup_Settings {
         $allowed_providers             = [ 'pressable', 'generic' ];
         $provider                      = sanitize_text_field( $input['hosting_provider'] ?? '' );
         $sanitized['hosting_provider'] = in_array( $provider, $allowed_providers, true ) ? $provider : '';
+
+        // Codespace environment overrides. Each one is blank-means-detect, so an
+        // unparseable value is discarded rather than persisted — /codespace-config
+        // then reports whatever the live server actually is.
+        $php_version              = sanitize_text_field( $input['php_version'] ?? '' );
+        $sanitized['php_version'] = Mighty_Backup_Environment::is_valid_php_version( $php_version ) ? $php_version : '';
+
+        $db_engine              = strtolower( sanitize_text_field( $input['db_engine'] ?? '' ) );
+        $sanitized['db_engine'] = Mighty_Backup_Environment::is_valid_db_engine( $db_engine ) ? $db_engine : '';
+
+        $sanitized['db_version'] = sanitize_text_field( $input['db_version'] ?? '' );
+
+        $timezone              = sanitize_text_field( $input['timezone'] ?? '' );
+        $sanitized['timezone'] = Mighty_Backup_Environment::is_valid_timezone( $timezone ) ? $timezone : '';
+
+        // Multisource: several sites sharing one repo (and therefore one Spaces
+        // prefix), told apart by the object-name stem. See get_object_stem().
+        $sanitized['multisource']      = ! empty( $input['multisource'] );
+        $sanitized['multisource_name'] = sanitize_title( $input['multisource_name'] ?? '' );
 
         // Email notifications.
         $sanitized['notify_on_failure'] = ! empty( $input['notify_on_failure'] );
@@ -368,6 +406,12 @@ class Mighty_Backup_Settings {
             'notify_on_failure'     => false,
             'notification_email'    => '',
             'hosting_provider'      => '',
+            'php_version'           => '',
+            'db_engine'             => '',
+            'db_version'            => '',
+            'timezone'              => '',
+            'multisource'           => false,
+            'multisource_name'      => '',
             'streamlined_mode'      => false,
             'db_chunk_seconds'      => 30,
             'db_large_table_threshold_mb' => 1024,
@@ -596,6 +640,27 @@ class Mighty_Backup_Settings {
             case 'text':
                 return sanitize_textarea_field( $value );
 
+            case 'php_version':
+                $trimmed = trim( $value );
+                if ( $trimmed !== '' && ! Mighty_Backup_Environment::is_valid_php_version( $trimmed ) ) {
+                    throw new \InvalidArgumentException(
+                        sprintf( 'Invalid PHP version "%s" for "%s". Expected major.minor, e.g. 8.2.', $value, $key )
+                    );
+                }
+                return $trimmed;
+
+            case 'timezone':
+                $trimmed = trim( $value );
+                if ( $trimmed !== '' && ! Mighty_Backup_Environment::is_valid_timezone( $trimmed ) ) {
+                    throw new \InvalidArgumentException(
+                        sprintf( 'Invalid timezone "%s" for "%s". Expected an IANA zone name, e.g. America/Denver.', $value, $key )
+                    );
+                }
+                return $trimmed;
+
+            case 'slug':
+                return sanitize_title( $value );
+
             case 'string':
             default:
                 return sanitize_text_field( $value );
@@ -625,6 +690,39 @@ class Mighty_Backup_Settings {
             return str_ends_with( $slug, '.git' ) ? substr( $slug, 0, -4 ) : $slug;
         }
         return str_ends_with( $value, '.git' ) ? substr( $value, 0, -4 ) : $value;
+    }
+
+    /**
+     * The object-name stem for this site's backups — the single source of truth
+     * for how remote keys are named.
+     *
+     * Single-source (the default) keeps the historical layout:
+     *   <client_path>/databases/backup-<timestamp>.sql.gz
+     *
+     * Multisource means several sites share one repo, and therefore one Spaces
+     * prefix, so the site's own name moves into the filename:
+     *   <client_path>/databases/<name>-<timestamp>.sql.gz
+     *
+     * Retention scopes its listing to `<type>/<stem>-`, which is what keeps one
+     * site from reaping a sibling's history (and what leaves pre-multisource
+     * `backup-*` objects untouched).
+     */
+    public function get_object_stem(): string {
+        if ( empty( $this->get( 'multisource' ) ) ) {
+            return self::DEFAULT_OBJECT_STEM;
+        }
+
+        $name = sanitize_title( (string) $this->get( 'multisource_name' ) );
+        if ( $name !== '' ) {
+            return $name;
+        }
+
+        // No explicit name — derive one from the site host so two sites sharing
+        // a repo still get distinct keys without any configuration.
+        $host = (string) wp_parse_url( get_site_url(), PHP_URL_HOST );
+        $host = sanitize_title( $host );
+
+        return $host !== '' ? $host : self::DEFAULT_OBJECT_STEM;
     }
 
     /**
@@ -904,6 +1002,23 @@ class Mighty_Backup_Settings {
             wp_send_json_error( 'Client path not configured.' );
         }
         if ( ! str_starts_with( $key, $client_path . '/' ) ) {
+            wp_send_json_error( 'Invalid file key.' );
+        }
+
+        // Under a multisource prefix the client path alone no longer isolates
+        // this site, so also require the object-name stem. 'backup-' stays
+        // allowed so history predating a multisource flip is still downloadable.
+        $stem      = $this->get_object_stem();
+        $basename  = basename( $key );
+        $allowed   = array_unique( [ $stem . '-', self::DEFAULT_OBJECT_STEM . '-' ] );
+        $stem_ok   = false;
+        foreach ( $allowed as $candidate ) {
+            if ( str_starts_with( $basename, $candidate ) ) {
+                $stem_ok = true;
+                break;
+            }
+        }
+        if ( ! $stem_ok ) {
             wp_send_json_error( 'Invalid file key.' );
         }
 

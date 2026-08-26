@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/includes/class-backup-manager.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/tests/BackupManagerTest.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/tests/DatabaseExporterRangedDumpTest.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/includes/class-scheduler.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/tests/SchedulerTest.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/includes/class-spaces-client.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/includes/class-retention-manager.php')",
+      "Bash(C:/Users/tyler/AppData/Roaming/Local/lightning-services/php-8.2.10+1/bin/win64/php.exe -l 'c:/Users/tyler/Local Sites/mighty-backup/includes/class-logger.php')",
+      "WebFetch(domain:api.github.com)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\tyler\\.claude\\plans"
+    ]
+  }
+}
