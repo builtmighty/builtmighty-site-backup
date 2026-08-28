@@ -1,0 +1,218 @@
+// Built Mighty development environment — v5.
+//
+// The whole design turns on WHERE work happens:
+//
+//   Image (Phase 0)        nginx, PHP 8.1-8.4, MySQL 8.4 + MariaDB 11.4, Redis,
+//                          Mailpit, wp-cli, WordPress core, and a baked sandbox
+//                          database dump. Pulled, never built.
+//
+//   onCreateCommand        Builds a WORKING WordPress: stages core, writes
+//   (Phase 1)              wp-config.php, seeds the database, installs the site.
+//                          Runs during a Codespaces PREBUILD, so its result is
+//                          captured in the snapshot.
+//
+//   postStartCommand       Starts processes and checks they answer. Target: <5s.
+//   (Phase 2)              Identical on create and on every resume.
+//
+//   Status page            The human picks a backup; the import runs then.
+//   (Phase 3)
+//
+// The point of that split is that a Codespace opens on a real, working site
+// instead of an empty container that then spends tens of minutes restoring a
+// production backup — which is what v4 did on every single create.
+{
+	"version": "5.0.0",
+	"name": "Built Mighty Development ENV",
+
+	// 8gb is COUPLED TO db/*.cnf, which set innodb_buffer_pool_size=1500M for
+	// fast bulk import. On a smaller machine mysqld is OOM-killed partway
+	// through, which presents as a truncated database rather than an error. If
+	// you lower this, lower the buffer pool in the same commit.
+	"hostRequirements": {
+		"cpus": 4,
+		"memory": "8gb"
+	},
+
+	// A published image, not a build. Pinned to the major tag so patch and minor
+	// releases roll out automatically while a future breaking 6.x stays opt-in.
+	// .github/workflows/publish-base-image.yml builds it from Dockerfile.
+	"image": "ghcr.io/builtmighty/devcontainer-base:5",
+
+	// NO FEATURES.
+	//
+	// v4 used docker-outside-of-docker, and that single dependency caused most
+	// of its fragility: the DDEV 1.24.2 pin (host Docker is 24.0.9 / API 1.43),
+	// the launch-then-poll-then-kill workaround for `ddev start` hanging forever
+	// on post-start processing, random host-port rebinding on resume, root-owned
+	// files needing a sudo chown reclaim, and an image cache that did not
+	// reliably survive into a prebuild snapshot.
+	//
+	// Features also install during a phase we do not control, BEFORE
+	// onCreateCommand — so a flaky apt mirror there drops the Codespace into the
+	// alpine recovery container and none of our scripts ever run. Every feature
+	// removed is one less way for that to happen.
+	//
+	// github-cli is baked into the base image instead. If you genuinely need a
+	// docker CLI for ad-hoc containers, add the feature back — nothing in the
+	// boot path depends on it, so a Docker failure cannot break startup.
+	"features": {},
+
+	// DEFER_UPLOADS is gone. Backups never contain wp-content/uploads — on a
+	// media-heavy store it dwarfs everything else — so there is nothing to defer:
+	// nginx proxies images from the production domain for the life of the
+	// Codespace. See the @remote_uploads block in nginx/site.conf.tpl, which is
+	// now the only thing that makes images render.
+	"remoteEnv": {
+		"BM_WORKSPACE": "/workspaces/${localWorkspaceFolderBasename}"
+	},
+
+	// ── Lifecycle hooks ─────────────────────────────────────────────────────
+	//
+	// One path, .devcontainer/bin/bm-lifecycle, because there is now only one
+	// layout: Codespaces discovers a config at .devcontainer/devcontainer.json,
+	// and that is where this template lives in both the template repo and every
+	// consuming repo.
+	//
+	// These hooks used to loop over two candidate directories. That existed
+	// solely because the template repo could not use .devcontainer itself while
+	// v4 still occupied it, so the v5 tree sat at .new-devcontainer and the same
+	// config had to work from either. v4 is gone, .new-devcontainer with it, and
+	// the fallback would now only ever be dead code in the one file where dead
+	// code is most expensive to reason about.
+	//
+	// Do not "helpfully" hardcode some other path here. An earlier revision
+	// pointed at .new-devcontainer and every consuming repo failed its prebuild
+	// with "bm-lifecycle: No such file or directory" (exit 127) — the config had
+	// been copied to .devcontainer/ but still named the template's own path.
+	//
+	// A MISSING script exits non-zero on purpose, unlike a script that runs and
+	// then fails internally. bm-lifecycle swallows its own runtime errors and
+	// exits 0 so a broken environment is still inspectable with `bm doctor`; but
+	// if the script cannot be found at all, nothing works and a prebuild that
+	// "succeeded" would bake a broken snapshot that every Codespace then
+	// restores. Failing loudly here is the lesser harm.
+	//
+	// Phase 1: build the sandbox. Captured in the prebuild snapshot.
+	"onCreateCommand": "bash .devcontainer/bin/bm-lifecycle create",
+
+	// Phase 2. Runs on create AND on every resume.
+	"postStartCommand": "bash .devcontainer/bin/bm-lifecycle start",
+
+	// Block on Phase 2 so the developer is not handed a terminal in a
+	// half-started environment.
+	"waitFor": "postStartCommand",
+
+	// Attach is cosmetic (it prints the URLs and opens the status page), so it
+	// must never nag. `|| true` is what keeps that true in the one case the
+	// script cannot handle itself: if bm-lifecycle is missing entirely, bash
+	// exits 127, and without this a broken checkout would raise a notification on
+	// every single reconnect. The create and start hooks deliberately do NOT
+	// swallow that — there, a missing script must fail loudly.
+	"postAttachCommand": "bash .devcontainer/bin/bm-lifecycle attach || true",
+
+	"forwardPorts": [8080, 8081, 3306, 6379, 8025, 1025],
+
+	"portsAttributes": {
+		// 8080, never 80. A forwarded port 80 makes Codespaces emit URLs of the
+		// form https://<name>-80.app.github.dev:80, and that explicit :80
+		// bypasses the TLS-terminating edge proxy — the browser gets
+		// ERR_SSL_PROTOCOL_ERROR. Any port above 1024 avoids it.
+		//
+		// That applies to what CODESPACES emits, and only that. WordPress can
+		// still produce a `:8080` URL of its own, from a different cause: it
+		// copies the port out of home_url() onto its canonical redirect, so a
+		// WP_HOME carrying a port sends visitors to <host>:8080 — which the
+		// tunnel edge, serving 443 only, answers with a 404. That is why
+		// wp-config.tpl.php resolves its URLs from the request instead of
+		// storing a host and port.
+		"8080": {
+			"label": "WordPress",
+			"protocol": "http",
+			"visibility": "public",
+			// Deliberately NOT openBrowser. The status page is what should open,
+			// because it is the page that explains what state the site is in and
+			// offers the backup picker.
+			"onAutoForward": "silent"
+		},
+		// The status page IS auto-opened — by bm-open from the attach hook, not
+		// from here, which is why this says silent.
+		//
+		// onAutoForward fires on the port-forwarded event, and that is not the
+		// same moment as "the status page is serving". Phase 1 deliberately
+		// leaves the services stopped so the prebuild agent can snapshot a
+		// cleanly closed database, so on a prebuild-restored Codespace nothing
+		// listens on 8081 until Phase 2 starts nginx — and a browser opened at
+		// forward time lands on a connection error that looks exactly like a
+		// broken environment. bm-open waits for a real response first.
+		//
+		// Leaving BOTH enabled would open two tabs. If bm-open ever cannot reach
+		// a browser in your setup, switching this back to "openBrowser" is the
+		// one-line fallback.
+		"8081": {
+			"label": "Environment Status",
+			"protocol": "http",
+			"visibility": "public",
+			"onAutoForward": "silent"
+		},
+		"3306": { "label": "Database", "onAutoForward": "silent" },
+		"6379": { "label": "Redis", "onAutoForward": "silent" },
+		"8025": { "label": "Mailpit (web)", "onAutoForward": "silent" },
+		"1025": { "label": "Mailpit (SMTP)", "onAutoForward": "silent" }
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"DEVSENSE.phptools-vscode",
+				"johnbillion.vscode-wordpress-hooks",
+				"GitHub.vscode-pull-request-github",
+				"BuiltMighty.builtmighty-commit",
+				"cweijan.vscode-mysql-client2",
+				"wisetime.branch-in-window-title",
+				"Anthropic.claude-code"
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "zsh",
+				"terminal.integrated.profiles.linux": { "zsh": { "path": "/bin/zsh" } },
+				"files.eol": "\n",
+				"git.autofetch": "all",
+				"git.enableCommitSigning": true,
+				"git.enableSmartCommit": false,
+				"git.pullBeforeCheckout": true,
+				"editor.formatOnSave": false,
+				"editor.stickyScroll.enabled": true,
+				"editor.linkedEditing": true,
+				"scm.defaultViewMode": "tree",
+				"php.validate.run": "onType",
+				// Keeps the file watcher and search off the multi-gigabyte
+				// directories a production restore creates. Without these, the
+				// editor indexes every uploaded image and the whole window
+				// stalls after an import.
+				"files.watcherExclude": {
+					"**/wp-content/uploads/**": true,
+					"**/wp-content/cache/**": true,
+					"**/node_modules/**": true,
+					"**/vendor/**": true
+				},
+				"search.exclude": {
+					"**/wp-content/uploads": true,
+					"**/wp-content/cache": true,
+					"**/node_modules": true,
+					"**/vendor": true,
+					"**/wp-admin": true,
+					"**/wp-includes": true
+				}
+			}
+		},
+		"codespaces": {
+			"repositories": {
+				"builtmighty/.devcontainer": { "permissions": { "contents": "write" } },
+				"builtmighty/create-plugin": { "permissions": { "contents": "write" } },
+				"builtmighty/plugin-boilerplate": { "permissions": { "contents": "write" } },
+				"builtmighty/child-theme-boilerplate": { "permissions": { "contents": "write" } },
+				"builtmighty/airfront": { "permissions": { "contents": "write" } },
+				"builtmighty/.builtmighty-claude": { "permissions": { "contents": "read" } }
+			}
+		}
+	}
+}

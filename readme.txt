@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 2.17.0
+Stable tag: 3.0.0
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,19 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 3.0.0 =
+**The devcontainer is now owned end-to-end by the template. `.devcontainer/` is replaced wholesale on every update, not merged into.**
+
+Major version because this changes what an update PR does to a repo. Before, an update overwrote the files the new template shipped and left everything else in place, so a repo accumulated whatever it had ever been given. Now the directory is whatever the template says and nothing else — which is the point, but it means anything a repo added under `.devcontainer/` is removed on the next update. **Read the first bullet before upgrading a repo that has custom devcontainer files.**
+
+* **`.devcontainer/` is replaced in full.** An update branch now removes every file under `.devcontainer/` and lays down the new template. **`.devcontainer/setup/` is no longer exempt** — earlier versions deliberately preserved it, so a repo relying on custom setup scripts will lose them. They are still in git history, and the PR body now lists every removed path by name so a reviewer can restore anything that mattered. Nothing outside `.devcontainer/` is touched.
+* **Branch renamed to `update-devcontainer-v{version}`** (was `devcontainer-update-{version}`).
+* **The branch is created last, after the commit exists.** It used to be created before the ~90 blob API calls that build the tree, so any failure in between — a rate limit, a timeout, a dropped connection — left an orphan branch behind, and every retry then died on "Branch already exists" until someone deleted it by hand. A collision is now detected up front with a single request (so an already-open PR fails in a second instead of after the whole copy), and a mid-run failure leaves nothing but unreferenced blobs, which GitHub garbage-collects.
+* **`devcontainer.json` keeps its comments.** Setting `hostRequirements.cpus` ran the file through `json_decode` + `wp_json_encode`, which meant every updated repo received a comment-stripped, reformatted file — the template's is roughly half commentary explaining why each setting is what it is, and all of it was being deleted on every upgrade to change one integer. The value is now rewritten in place, leaving every other byte identical; the result is parsed back and verified before it is committed, falling back to the old re-encode only if that check fails. The same fix applies to the resize PR path.
+* **Sizing is no longer silently reset for repos with no `version` field.** `check_version()` omitted `current_cpus` on that path, so an update would quietly re-derive the machine size from disk usage and discard a repo that had been tuned to a larger machine.
+* **Truncated file listings abort the update.** GitHub caps very large recursive tree responses and flags them `truncated`; that flag was ignored, so an oversized repo could have produced a PR that copied a partial `.devcontainer` or missed files that should have been deleted — both of which look like success. It now fails with an explanation instead.
+* **First tests for the devcontainer manager.** The class had no coverage at all, and the tree builder is the piece that can delete a repo's files without replacing them. The destructive logic and the cpus patcher are now pure static functions covered by 19 tests, including a byte-level assertion against the real template that only the `cpus` digits change.
 
 = 2.17.0 =
 **`/codespace-config` now returns the full documented field set — five new environment fields, plus an opt-in multisource object layout.**

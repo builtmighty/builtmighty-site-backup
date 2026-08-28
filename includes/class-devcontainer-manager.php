@@ -288,23 +288,29 @@ class Mighty_Devcontainer_Manager {
 		$repo_url = self::API_BASE . '/repos/' . $config['owner'] . '/' . $config['repo']
 			. '/contents/.devcontainer/devcontainer.json';
 
+		$repo_file = [];
+
 		try {
 			$repo_file       = $this->api_get( $repo_url );
 			$current_version = $this->extract_version_from_contents( $repo_file );
 		} catch ( \RuntimeException $e ) {
 			if ( str_contains( $e->getMessage(), '404' ) || str_contains( $e->getMessage(), 'Not Found' ) ) {
+				// Nothing installed, so there is no sizing to carry over.
 				return [
 					'status'  => 'not_installed',
 					'current' => null,
 					'latest'  => $latest_version,
 				];
 			}
-			// Missing version field → assume outdated.
+			// Missing version field → assume outdated. The file itself was
+			// fetched, so its cpus still has to be reported — without it the
+			// update would silently reset the repo to the disk-derived tier.
 			if ( str_contains( $e->getMessage(), 'does not contain a "version" field' ) ) {
 				return [
-					'status'  => 'outdated',
-					'current' => null,
-					'latest'  => $latest_version,
+					'status'       => 'outdated',
+					'current'      => null,
+					'latest'       => $latest_version,
+					'current_cpus' => $this->extract_cpus_from_contents( $repo_file ),
 				];
 			}
 			throw $e;
@@ -372,23 +378,18 @@ class Mighty_Devcontainer_Manager {
 		$ref      = $this->api_get( self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs/heads/' . $default_branch );
 		$head_sha = $ref['object']['sha'];
 
-		// 3. Create the update branch.
-		$branch_name = 'devcontainer-update-' . $latest;
-		try {
-			$this->api_post(
-				self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs',
-				[
-					'ref' => 'refs/heads/' . $branch_name,
-					'sha' => $head_sha,
-				]
+		// 3. Name the update branch. The ref itself is created at the very end,
+		//    once the commit exists — creating it up front meant any failure in
+		//    the ~90 blob calls below left an orphan branch that then blocked
+		//    every retry with "already exists". Check for a collision here
+		//    anyway, so an existing PR fails in a second rather than after the
+		//    whole copy.
+		$branch_name = sprintf( 'update-devcontainer-v%s', $latest );
+
+		if ( $this->branch_exists( $owner, $repo, $branch_name ) ) {
+			throw new \RuntimeException(
+				'Branch "' . $branch_name . '" already exists. A PR may already be open for this update.'
 			);
-		} catch ( \RuntimeException $e ) {
-			if ( str_contains( $e->getMessage(), '422' ) || str_contains( $e->getMessage(), 'Reference already exists' ) ) {
-				throw new \RuntimeException(
-					'Branch "' . $branch_name . '" already exists. A PR may already be open for this update.'
-				);
-			}
-			throw $e;
 		}
 
 		// 4. Get the repo's current tree (recursive).
@@ -396,6 +397,7 @@ class Mighty_Devcontainer_Manager {
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/trees/' . $head_sha . '?recursive=1'
 		);
 		$repo_tree = $repo_tree_data['tree'];
+		$this->assert_tree_complete( $repo_tree_data, 'the repository' );
 
 		// 5. Get the global template tree (recursive).
 		$global_tree_data = $this->api_get(
@@ -403,6 +405,7 @@ class Mighty_Devcontainer_Manager {
 				. '/git/trees/' . self::GLOBAL_REF . '?recursive=1'
 		);
 		$global_tree = $global_tree_data['tree'];
+		$this->assert_tree_complete( $global_tree_data, 'the devcontainer template' );
 
 		// 6. Calculate site disk size and determine Codespace tier.
 		$disk_size = $this->calculate_site_disk_size();
@@ -419,64 +422,29 @@ class Mighty_Devcontainer_Manager {
 			? [ 'cpus' => $existing_cpus ]
 			: $tier;
 
-		// 7. Build the new tree entries.
-		$tree_items = [];
-
-		// 7a. Collect existing .devcontainer/setup/* entries from the repo (preserve them).
-		$repo_setup_entries = [];
-		foreach ( $repo_tree as $entry ) {
-			if ( $entry['type'] === 'blob' && str_starts_with( $entry['path'], '.devcontainer/setup/' ) ) {
-				$repo_setup_entries[ $entry['path'] ] = true;
-				$tree_items[] = [
-					'path' => $entry['path'],
-					'mode' => $entry['mode'],
-					'type' => 'blob',
-					'sha'  => $entry['sha'],
-				];
-			}
-		}
-
-		// 7b. Add all global template entries EXCEPT setup/*.
-		//     Collect the files first so we know the total for the progress bar.
-		$global_paths  = [];
-		$files_to_copy = [];
-		foreach ( $global_tree as $entry ) {
-			if ( $entry['type'] !== 'blob' ) {
-				continue;
-			}
-			if ( ! str_starts_with( $entry['path'], '.devcontainer/' ) ) {
-				continue;
-			}
-			if ( str_starts_with( $entry['path'], '.devcontainer/setup/' ) ) {
-				continue;
-			}
-			$files_to_copy[]              = $entry;
-			$global_paths[ $entry['path'] ] = true;
-		}
+		// 7. Copy every template file into the target repo as a blob.
+		//    `.devcontainer/` is replaced wholesale, so nothing the repo already
+		//    has under that prefix is carried over — including setup/.
+		$files_to_copy = self::template_files( $global_tree );
 
 		// Progress units: one per file copied, plus two finalize steps
 		// (create commit, open PR).
 		$file_count = count( $files_to_copy );
 		$total      = $file_count + 2;
 		$done       = 0;
+		$blob_shas  = [];
 
 		foreach ( $files_to_copy as $entry ) {
-			// Inject hostRequirements into devcontainer.json, preserving the repo's
-			// existing cpus (or the disk-size tier when the repo has none set).
-			if ( $entry['path'] === '.devcontainer/devcontainer.json' ) {
-				$new_sha = $this->copy_blob_with_host_requirements( $entry['sha'], $owner, $repo, $cpus_tier );
+			// Set hostRequirements.cpus on devcontainer.json to the repo's own
+			// sizing (or the disk-size tier when the repo has none set).
+			if ( $entry['path'] === self::DEVCONTAINER_PREFIX . 'devcontainer.json' ) {
+				$blob_shas[ $entry['path'] ] = $this->copy_blob_with_host_requirements( $entry['sha'], $owner, $repo, $cpus_tier );
 			} else {
-				$new_sha = $this->copy_blob_to_repo( $entry['sha'], $owner, $repo );
+				$blob_shas[ $entry['path'] ] = $this->copy_blob_to_repo( $entry['sha'], $owner, $repo );
 			}
-			$tree_items[] = [
-				'path' => $entry['path'],
-				'mode' => $entry['mode'],
-				'type' => 'blob',
-				'sha'  => $new_sha,
-			];
 
 			$done++;
-			$short = substr( $entry['path'], strlen( '.devcontainer/' ) );
+			$short = substr( $entry['path'], strlen( self::DEVCONTAINER_PREFIX ) );
 			$this->report_progress(
 				sprintf( 'Copying %s (%d/%d)', $short, $done, $file_count ),
 				$done,
@@ -484,31 +452,12 @@ class Mighty_Devcontainer_Manager {
 			);
 		}
 
-		// 7c. Delete repo .devcontainer/* entries that are not in the global template
-		//     and not in setup/ (they should be removed).
-		foreach ( $repo_tree as $entry ) {
-			if ( $entry['type'] !== 'blob' ) {
-				continue;
-			}
-			if ( ! str_starts_with( $entry['path'], '.devcontainer/' ) ) {
-				continue;
-			}
-			if ( str_starts_with( $entry['path'], '.devcontainer/setup/' ) ) {
-				continue;
-			}
-			if ( isset( $global_paths[ $entry['path'] ] ) ) {
-				continue;
-			}
-			// File exists in repo but not in global template — delete it.
-			$tree_items[] = [
-				'path' => $entry['path'],
-				'mode' => $entry['mode'],
-				'type' => 'blob',
-				'sha'  => null,
-			];
-		}
+		// 8. Build the replacement tree: every template file, plus a delete for
+		//    every repo file under .devcontainer/ the template doesn't ship.
+		//    base_tree carries the rest of the repo through untouched.
+		$removed_paths = self::removed_devcontainer_paths( $repo_tree, $global_tree );
+		$tree_items    = self::build_devcontainer_tree_items( $repo_tree, $global_tree, $blob_shas );
 
-		// 8. Create the new tree using base_tree so non-.devcontainer files are preserved.
 		$new_tree = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/trees',
 			[
@@ -517,7 +466,7 @@ class Mighty_Devcontainer_Manager {
 			]
 		);
 
-		// 9. Create a commit on the new branch.
+		// 9. Create the commit.
 		$this->report_progress( 'Creating commit…', $done, $total );
 		$commit_message = 'Update .devcontainer to v' . $latest;
 		$new_commit     = $this->api_post(
@@ -529,17 +478,32 @@ class Mighty_Devcontainer_Manager {
 			]
 		);
 
-		// 10. Point the branch to the new commit.
-		$this->api_patch(
-			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs/heads/' . $branch_name,
-			[ 'sha' => $new_commit['sha'] ]
-		);
+		// 10. Create the branch, pointing at the finished commit. Doing this
+		//     last means a failure anywhere above leaves nothing behind but
+		//     unreferenced blobs, which GitHub garbage-collects — so a retry
+		//     isn't blocked by an orphan branch from the previous attempt.
+		try {
+			$this->api_post(
+				self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/refs',
+				[
+					'ref' => 'refs/heads/' . $branch_name,
+					'sha' => $new_commit['sha'],
+				]
+			);
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), '422' ) || str_contains( $e->getMessage(), 'Reference already exists' ) ) {
+				throw new \RuntimeException(
+					'Branch "' . $branch_name . '" already exists. A PR may already be open for this update.'
+				);
+			}
+			throw $e;
+		}
 
 		// 11. Create the pull request.
 		$this->report_progress( 'Opening pull request…', $done + 1, $total );
-		$pr_body = "Updates the `.devcontainer` configuration to **v{$latest}** from the global template.\n\n"
-			. "- `.devcontainer/setup/` has been preserved.\n"
-			. "- All other `.devcontainer/` files have been replaced with the latest template.\n";
+		$pr_body = "Replaces `.devcontainer/` wholesale with template **v{$latest}**.\n\n"
+			. "- Every file under `.devcontainer/` was removed and replaced — including `setup/`.\n"
+			. "- Nothing outside `.devcontainer/` was touched.\n";
 
 		if ( $disk_size > 0 ) {
 			$human_size = size_format( $disk_size );
@@ -550,6 +514,19 @@ class Mighty_Devcontainer_Manager {
 				$pr_body .= "- Configured for **{$tier['cpus']}-core** Codespace. Site size: {$human_size}.\n";
 			} else {
 				$pr_body .= "- **Warning:** Site size is {$human_size} (excluding uploads), which exceeds the 256 GB Codespace limit. Configured with maximum resources (32-core).\n";
+			}
+		}
+
+		// Name what was dropped. These are files this repo had that the template
+		// doesn't ship — anything worth keeping has to be restored deliberately,
+		// so a reviewer needs to see the list rather than hunt the diff.
+		if ( $removed_paths ) {
+			$pr_body .= sprintf(
+				"\n**Removed %d file(s) not present in the template:**\n",
+				count( $removed_paths )
+			);
+			foreach ( $removed_paths as $path ) {
+				$pr_body .= "- `{$path}`\n";
 			}
 		}
 
@@ -631,20 +608,15 @@ class Mighty_Devcontainer_Manager {
 			throw new \RuntimeException( 'Could not decode existing devcontainer.json.' );
 		}
 
-		$stripped = preg_replace( '#^\s*//.*$#m', '', $content );
-		$json     = json_decode( $stripped, true );
-		if ( ! is_array( $json ) ) {
+		// 4. Set cpus in place, so the file's comments and formatting survive a
+		//    resize. Falls back to a full re-encode only if that can't be
+		//    verified — every other hostRequirements key is preserved either way.
+		$new_content = self::set_host_requirements_cpus( $content, $cpus )
+			?? self::rewrite_host_requirements_cpus( $content, $cpus );
+
+		if ( $new_content === null ) {
 			throw new \RuntimeException( 'Could not parse existing devcontainer.json.' );
 		}
-
-		// 4. Update only the cpus field — preserve any other hostRequirements
-		//    keys (memory, storage, etc.) that the existing file declares.
-		if ( ! isset( $json['hostRequirements'] ) || ! is_array( $json['hostRequirements'] ) ) {
-			$json['hostRequirements'] = [];
-		}
-		$json['hostRequirements']['cpus'] = $cpus;
-
-		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
 		// 5. Create the updated blob.
 		$new_blob = $this->api_post(
@@ -803,7 +775,183 @@ class Mighty_Devcontainer_Manager {
 	}
 
 	/**
-	 * Copy the devcontainer.json blob, injecting hostRequirements based on site size.
+	 * The path prefix owned by the template. Everything under it is replaced
+	 * wholesale on an update; nothing outside it is ever touched.
+	 */
+	private const DEVCONTAINER_PREFIX = '.devcontainer/';
+
+	/**
+	 * Build the Git Data tree items for a wholesale `.devcontainer` replacement.
+	 *
+	 * The committed directory ends up as exactly what the template ships —
+	 * every template file added, and every file the repo has under
+	 * `.devcontainer/` that the template does not ship removed. Nothing outside
+	 * `.devcontainer/` appears in the result, so `base_tree` carries the rest of
+	 * the repo through untouched.
+	 *
+	 * Deletes are emitted only for paths the template does not ship, rather than
+	 * deleting all of them and re-adding: a same-path delete and add in one
+	 * `tree` array has no specified resolution order. The end state is identical.
+	 *
+	 * Pure — no API calls — so the destructive half of this feature is unit
+	 * testable. Callers create the blobs and pass the resulting SHAs in.
+	 *
+	 * @param array $repo_tree     Recursive tree entries from the target repo.
+	 * @param array $template_tree Recursive tree entries from the template repo.
+	 * @param array $blob_shas     Map of template path => new blob SHA in the target repo.
+	 * @return array Tree items for POST /git/trees.
+	 */
+	public static function build_devcontainer_tree_items( array $repo_tree, array $template_tree, array $blob_shas ): array {
+		$items          = [];
+		$template_paths = [];
+
+		foreach ( self::devcontainer_blobs( $template_tree ) as $entry ) {
+			$path = $entry['path'];
+
+			$template_paths[ $path ] = true;
+
+			if ( ! isset( $blob_shas[ $path ] ) ) {
+				// No blob was created for this path — skip it rather than emit
+				// a tree entry with a missing SHA, which GitHub rejects.
+				continue;
+			}
+
+			$items[] = [
+				'path' => $path,
+				// Mode comes from the template so the executable bit travels
+				// with the file.
+				'mode' => $entry['mode'],
+				'type' => 'blob',
+				'sha'  => $blob_shas[ $path ],
+			];
+		}
+
+		foreach ( self::devcontainer_blobs( $repo_tree ) as $entry ) {
+			if ( isset( $template_paths[ $entry['path'] ] ) ) {
+				continue; // Already added above.
+			}
+
+			// In the repo but not in the template — remove it. `sha => null` is
+			// the Git Data API's delete signal.
+			$items[] = [
+				'path' => $entry['path'],
+				'mode' => $entry['mode'],
+				'type' => 'blob',
+				'sha'  => null,
+			];
+		}
+
+		return $items;
+	}
+
+	/**
+	 * The template files to copy — every blob under `.devcontainer/`.
+	 *
+	 * @param array $template_tree Recursive tree entries from the template repo.
+	 * @return array Tree entries, in the order given.
+	 */
+	public static function template_files( array $template_tree ): array {
+		return self::devcontainer_blobs( $template_tree );
+	}
+
+	/**
+	 * Whether a branch already exists on the target repo.
+	 *
+	 * Uses the singular `git/ref/` endpoint, which matches exactly and 404s
+	 * otherwise — the plural `git/refs/` form does prefix matching and would
+	 * report a collision for any branch merely starting with this name.
+	 *
+	 * @return bool True if the ref exists; false on a 404 or an unreadable answer.
+	 */
+	private function branch_exists( string $owner, string $repo, string $branch ): bool {
+		try {
+			$ref = $this->api_get(
+				self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/ref/heads/' . rawurlencode( $branch )
+			);
+		} catch ( \RuntimeException $e ) {
+			// 404 is the expected "no such branch". Anything else (auth, rate
+			// limit) shouldn't block the run here — the ref creation at the end
+			// surfaces the real error.
+			return false;
+		}
+
+		return ! empty( $ref['ref'] );
+	}
+
+	/**
+	 * Reject a tree response GitHub truncated.
+	 *
+	 * `?recursive=1` silently caps very large trees and sets `truncated`. Acting
+	 * on a partial listing would either copy an incomplete `.devcontainer` or
+	 * miss files that should have been deleted, and both failures look like a
+	 * successful PR. Fail loudly instead.
+	 *
+	 * @param array  $tree_data Decoded tree response.
+	 * @param string $label     Human name for the source, used in the message.
+	 * @throws \RuntimeException When the response was truncated.
+	 */
+	private function assert_tree_complete( array $tree_data, string $label ): void {
+		if ( ! empty( $tree_data['truncated'] ) ) {
+			throw new \RuntimeException(
+				sprintf(
+					'GitHub truncated the file listing for %s, so the update would be incomplete. This needs to be applied manually.',
+					$label
+				)
+			);
+		}
+	}
+
+	/**
+	 * Filter a recursive tree response down to blobs under `.devcontainer/`.
+	 *
+	 * @param array $tree Entries from a `?recursive=1` tree response.
+	 * @return array Matching entries, in the order given.
+	 */
+	private static function devcontainer_blobs( array $tree ): array {
+		$blobs = [];
+
+		foreach ( $tree as $entry ) {
+			if ( ( $entry['type'] ?? '' ) !== 'blob' ) {
+				continue; // Sub-tree entries are implied by their blobs' paths.
+			}
+			if ( ! str_starts_with( (string) ( $entry['path'] ?? '' ), self::DEVCONTAINER_PREFIX ) ) {
+				continue;
+			}
+			$blobs[] = $entry;
+		}
+
+		return $blobs;
+	}
+
+	/**
+	 * Paths present under `.devcontainer/` in the repo but not in the template.
+	 *
+	 * These are the files a wholesale replacement removes — surfaced in the PR
+	 * body so a reviewer can see exactly what was dropped.
+	 *
+	 * @return string[] Sorted paths.
+	 */
+	public static function removed_devcontainer_paths( array $repo_tree, array $template_tree ): array {
+		$template_paths = [];
+		foreach ( self::devcontainer_blobs( $template_tree ) as $entry ) {
+			$template_paths[ $entry['path'] ] = true;
+		}
+
+		$removed = [];
+		foreach ( self::devcontainer_blobs( $repo_tree ) as $entry ) {
+			if ( ! isset( $template_paths[ $entry['path'] ] ) ) {
+				$removed[] = $entry['path'];
+			}
+		}
+
+		sort( $removed );
+
+		return $removed;
+	}
+
+	/**
+	 * Copy the devcontainer.json blob, setting hostRequirements.cpus to the
+	 * repo's own sizing.
 	 *
 	 * @param string     $sha   Blob SHA in the global template repo.
 	 * @param string     $owner Target repo owner.
@@ -823,36 +971,140 @@ class Mighty_Devcontainer_Manager {
 			return $this->copy_blob_to_repo( $sha, $owner, $repo );
 		}
 
-		// Strip JS-style single-line comments before parsing.
-		$stripped = preg_replace( '#^\s*//.*$#m', '', $content );
-		$json     = json_decode( $stripped, true );
+		// Use the provided tier, or max tier as fallback for >256 GB sites.
+		$cpus = (int) ( ( $tier ?? [ 'cpus' => 32 ] )['cpus'] );
 
-		if ( ! is_array( $json ) ) {
-			// Fallback: copy as-is if JSON is invalid.
+		$patched = self::set_host_requirements_cpus( $content, $cpus );
+		if ( $patched === null ) {
+			// The surgical patch couldn't be verified. Fall back to a full
+			// re-encode: it destroys the template's comments and formatting,
+			// but shipping the wrong machine size is worse than shipping an
+			// ugly file.
+			$patched = self::rewrite_host_requirements_cpus( $content, $cpus );
+		}
+
+		if ( $patched === null ) {
+			// Not parseable at all — copy verbatim rather than commit garbage.
 			return $this->copy_blob_to_repo( $sha, $owner, $repo );
 		}
-
-		// Use the provided tier, or max tier as fallback for >256 GB sites.
-		$host_tier = $tier ?? [ 'cpus' => 32 ];
-
-		// Patch only the cpus field — preserve any other hostRequirements
-		// keys (memory, storage, etc.) that the template may declare.
-		if ( ! isset( $json['hostRequirements'] ) || ! is_array( $json['hostRequirements'] ) ) {
-			$json['hostRequirements'] = [];
-		}
-		$json['hostRequirements']['cpus'] = $host_tier['cpus'];
-
-		$new_content = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
 		$new_blob = $this->api_post(
 			self::API_BASE . '/repos/' . $owner . '/' . $repo . '/git/blobs',
 			[
-				'content'  => base64_encode( $new_content ),
+				'content'  => base64_encode( $patched ),
 				'encoding' => 'base64',
 			]
 		);
 
 		return $new_blob['sha'];
+	}
+
+	/**
+	 * Set hostRequirements.cpus by rewriting the value in place.
+	 *
+	 * devcontainer.json is JSONC — the template's is roughly half comments
+	 * explaining why each setting is what it is. Decoding and re-encoding to
+	 * change one integer throws all of that away (and reformats tabs to spaces
+	 * and reorders nothing but renders it unrecognisable in review), so this
+	 * edits the source text and leaves every other byte alone.
+	 *
+	 * The result is verified by parsing it back before it is returned, so a
+	 * regex that matched the wrong thing can never reach a commit.
+	 *
+	 * @param string $source JSONC source of devcontainer.json.
+	 * @param int    $cpus   Value to set.
+	 * @return string|null Patched source, or null if it could not be applied
+	 *                     and verified — the caller must then fall back.
+	 */
+	public static function set_host_requirements_cpus( string $source, int $cpus ): ?string {
+		// Locate the hostRequirements object. Its body has no nested objects in
+		// any template version to date; if that ever changes, the verification
+		// below rejects the result rather than corrupting the file.
+		$pattern = '/("hostRequirements"\s*:\s*\{)([^{}]*)(\})/';
+
+		$patched = preg_replace_callback(
+			$pattern,
+			static function ( array $m ) use ( $cpus ): string {
+				$count = 0;
+				$inner = preg_replace(
+					'/("cpus"\s*:\s*)\d+/',
+					'${1}' . $cpus,
+					$m[2],
+					1,
+					$count
+				);
+
+				if ( $count === 0 ) {
+					// No cpus key in the block — add one, matching the
+					// indentation of whatever line follows the brace.
+					$indent = "\n\t\t";
+					if ( preg_match( '/\n([ \t]+)\S/', $m[2], $im ) ) {
+						$indent = "\n" . $im[1];
+					}
+					$inner = $indent . '"cpus": ' . $cpus . ',' . $m[2];
+				}
+
+				return $m[1] . $inner . $m[3];
+			},
+			$source,
+			1,
+			$replacements
+		);
+
+		if ( $patched === null || $replacements === 0 ) {
+			return null;
+		}
+
+		return self::verify_cpus( $patched, $cpus ) ? $patched : null;
+	}
+
+	/**
+	 * Last-resort cpus rewrite: decode the JSONC and re-encode it.
+	 *
+	 * Loses comments and formatting, so it is only reached when the in-place
+	 * patch could not be verified.
+	 *
+	 * @param string $source JSONC source of devcontainer.json.
+	 * @param int    $cpus   Value to set.
+	 * @return string|null Re-encoded JSON, or null if the source won't parse.
+	 */
+	public static function rewrite_host_requirements_cpus( string $source, int $cpus ): ?string {
+		$json = self::decode_jsonc( $source );
+		if ( ! is_array( $json ) ) {
+			return null;
+		}
+
+		if ( ! isset( $json['hostRequirements'] ) || ! is_array( $json['hostRequirements'] ) ) {
+			$json['hostRequirements'] = [];
+		}
+		$json['hostRequirements']['cpus'] = $cpus;
+
+		$encoded = wp_json_encode( $json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+
+		return is_string( $encoded ) ? $encoded : null;
+	}
+
+	/**
+	 * Whether the given JSONC source parses and declares exactly this cpus value.
+	 */
+	private static function verify_cpus( string $source, int $cpus ): bool {
+		$json = self::decode_jsonc( $source );
+
+		return is_array( $json )
+			&& isset( $json['hostRequirements']['cpus'] )
+			&& (int) $json['hostRequirements']['cpus'] === $cpus;
+	}
+
+	/**
+	 * Decode JSONC (JSON with whole-line `//` comments, as devcontainer.json uses).
+	 *
+	 * @return array|null Decoded array, or null when the source isn't valid.
+	 */
+	private static function decode_jsonc( string $source ): ?array {
+		$stripped = preg_replace( '#^\s*//.*$#m', '', $source );
+		$json     = json_decode( (string) $stripped, true );
+
+		return is_array( $json ) ? $json : null;
 	}
 
 	/**

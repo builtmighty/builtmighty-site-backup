@@ -27,7 +27,7 @@ wp plugin install https://github.com/builtmighty/mighty-backup/releases/latest/d
 - **Email notifications** — alerts on backup failure
 - **Dev Mode detection** — prevents dev/staging sites from overwriting production backups
 - **Codespace integration** — REST API endpoint and bootstrap key for the pipeline
-- **Devcontainer management** — check and update .devcontainer config via GitHub API with automatic Codespace tier sizing (4 → 8 → 16 → 32-core, up to 256 GB) based on site disk usage with 20% headroom; creates resize PRs when a site outgrows its current tier; target branch is selectable from a dropdown of the repo's branches (defaults to the repo's default branch)
+- **Devcontainer management** — check and update .devcontainer config via GitHub API. An update replaces `.devcontainer/` wholesale on a `update-devcontainer-v{version}` branch, carrying over only the repo's `hostRequirements.cpus`; automatic Codespace tier sizing (4 → 8 → 16 → 32-core, up to 256 GB) based on site disk usage with 20% headroom fills in when the repo has none set, and a separate resize PR is raised when a site outgrows its current tier
 - **Self-driving backup processing** — backup steps are processed directly during admin UI polling and WP-CLI execution, with no dependency on WP-Cron or Action Scheduler's async dispatcher
 - **WP-CLI support** — full command-line interface with timeout control
 - **Automatic updates** — auto-updates from GitHub releases via built-in update checker
@@ -236,15 +236,36 @@ Manage the repo's `.devcontainer` configuration via the GitHub API — the CLI
 equivalent of the Devcontainer tab in the admin UI.
 
 ```bash
-# Check current vs. latest version and list available branches
+# Check current vs. latest version
 wp mighty-backup devcontainer check [--format=<table|json|yaml>]
 
 # Create a PR to install or update .devcontainer
-wp mighty-backup devcontainer update [--branch=<branch>] [--yes]
+wp mighty-backup devcontainer update [--yes]
 ```
 
-If `--branch` is omitted, the PR targets the repository's default branch.
 `--yes` skips the confirmation prompt (useful for automation).
+
+#### What an update PR contains
+
+The PR branches from the repo's default branch as
+`update-devcontainer-v{version}` and replaces `.devcontainer/` **wholesale**:
+
+1. The repo's existing `hostRequirements.cpus` is recorded.
+2. Every file under `.devcontainer/` is removed — **including `setup/`**, which
+   earlier versions preserved. Files the repo had that the template does not
+   ship are listed by path in the PR body so they can be restored deliberately.
+3. The new template's `.devcontainer/` is added in full.
+4. `hostRequirements.cpus` is restored to the recorded value, by rewriting that
+   one value in place so the file's comments and formatting survive.
+
+Only `cpus` carries over. `memory` and every other key come from the new
+template — the template ties `memory` to the `innodb_buffer_pool_size` in its
+own `db/*.cnf`, so pinning a stale value can leave the database OOM-killed
+partway through an import.
+
+Nothing outside `.devcontainer/` is touched. If GitHub truncates the file
+listing for either repo the update aborts rather than commit a partial
+directory.
 
 ### Codespace Bootstrap API Key
 
