@@ -13,6 +13,65 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Mighty_Backup_Repair_CLI_Command {
 
     /**
+     * Restore the bundled Composer dependencies (vendor/) for this plugin.
+     *
+     * Mighty Backup ships its own vendor/ tree, so this is only needed when
+     * something removed it — a deploy pipeline filtering `**\/vendor`, a
+     * truncated auto-update, or a site restored from a backup taken before
+     * 3.0.1 (which excluded the tree from archives).
+     *
+     * Downloads the release matching the installed version — falling back to
+     * the latest release — and replaces vendor/ in place. Never upgrades the
+     * plugin itself.
+     *
+     * ## OPTIONS
+     *
+     * [--status]
+     * : Report what is missing and why, then exit without changing anything.
+     *
+     * ## EXAMPLES
+     *
+     *     wp mighty-backup repair deps --status
+     *     wp mighty-backup repair deps
+     *
+     * @param array $args       Positional arguments (unused).
+     * @param array $assoc_args Named arguments.
+     */
+    public function deps( $args, $assoc_args ) {
+        $diagnostics = mighty_backup_dependency_diagnostics();
+
+        WP_CLI::log( 'vendor/autoload.php : ' . ( $diagnostics['autoloader'] ? 'present' : 'MISSING' ) );
+        WP_CLI::log( 'AWS SDK loadable    : ' . ( mighty_backup_has_sdk() ? 'yes' : 'NO' ) );
+        WP_CLI::log( 'Action Scheduler    : ' . ( mighty_backup_has_action_scheduler() ? 'yes' : 'NO' ) );
+        WP_CLI::log( 'PHP version         : ' . $diagnostics['php_version'] . ( $diagnostics['php_ok'] ? ' (ok)' : ' (REQUIRES >= 8.1)' ) );
+        WP_CLI::log( 'Missing extensions  : ' . ( $diagnostics['missing_extensions'] ? implode( ', ', $diagnostics['missing_extensions'] ) : 'none' ) );
+
+        if ( isset( $assoc_args['status'] ) ) {
+            return;
+        }
+
+        if ( ! $diagnostics['php_ok'] ) {
+            WP_CLI::error( sprintf( 'PHP %s is below the 8.1 requirement. Upgrade PHP — repairing dependencies will not help.', $diagnostics['php_version'] ) );
+        }
+
+        if ( mighty_backup_has_sdk() && $diagnostics['autoloader'] ) {
+            WP_CLI::success( 'Dependencies are already present and loadable. Nothing to repair.' );
+            return;
+        }
+
+        WP_CLI::log( '' );
+        WP_CLI::log( 'Downloading release package...' );
+
+        $result = Mighty_Backup_Dependency_Repair::repair();
+
+        if ( ! $result['success'] ) {
+            WP_CLI::error( $result['message'] );
+        }
+        WP_CLI::success( $result['message'] );
+        WP_CLI::log( 'Run `wp mighty-backup test` to confirm the Spaces connection works.' );
+    }
+
+    /**
      * Repair `{HASH}` wpdb-placeholder corruption persisted in the database.
      *
      * Scans the standard WordPress core tables (options, posts, *meta) for

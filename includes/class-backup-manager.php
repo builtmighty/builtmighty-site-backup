@@ -68,7 +68,7 @@ class Mighty_Backup_Manager {
      */
     public function schedule( string $type = 'full', string $trigger = 'scheduled' ): array {
         if ( ! mighty_backup_has_sdk() ) {
-            throw new \Exception( 'AWS SDK not installed. Run "composer install" in the plugin directory.' );
+            throw new \Exception( 'The bundled AWS SDK could not be loaded, so this install is incomplete. Run "wp mighty-backup repair deps" or reinstall the plugin from the latest release ZIP.' );
         }
 
         if ( ! mighty_backup_has_action_scheduler() ) {

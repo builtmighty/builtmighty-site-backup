@@ -46,24 +46,20 @@ class Mighty_Backup_File_Archiver {
         // when is_readable() returns true. Keep this excluded by default.
         'wp-content/mysql.sql',
 
-        // This plugin's own Composer tree. These archives hydrate Codespaces
-        // rather than restore production, so Mighty Backup does not need to be
-        // functional inside the result — it will show its "missing dependencies"
-        // notice there, and `composer install --no-dev` rehydrates it from the
-        // composer.json/composer.lock that ship alongside.
+        // NOTE: this plugin's own vendor/ directory is deliberately NOT excluded.
         //
-        // The pattern is deliberately "mighty-backup/vendor", NOT "vendor" and
-        // NOT the full "wp-content/plugins/mighty-backup/vendor":
-        //   - bare "vendor" would hit the segment branch in is_excluded() and
-        //     strip EVERY plugin's and theme's vendor dir site-wide.
-        //   - the full prefix only matches the prefix branch, so it silently
-        //     misses when WP_CONTENT_DIR is renamed or relocated inside ABSPATH.
-        // This form matches is_excluded()'s segment/suffix branches, so it works
-        // identically in stream_directory(), archive_split_content() and the
-        // shell-tar path, and because the directory entry itself matches, the
-        // RecursiveCallbackFilterIterator prunes the whole subtree instead of
-        // descending it.
-        'mighty-backup/vendor',
+        // 2.16.0 excluded it, back when the bundled tree was 5,193 files / 50 MB.
+        // The same release pruned it to 720 files / 4.9 MB (~1.5 MB gzipped), which
+        // inverted the trade-off: a site hydrated from one of these archives came up
+        // with Mighty Backup installed but its dependencies stripped, reporting
+        // "Missing dependencies: AWS SDK" with no way to fix it without a shell.
+        // Shipping the tree costs almost nothing and means a restored site or
+        // Codespace has a working plugin. Do not re-add that exclusion.
+        //
+        // If you ever do need to exclude a single plugin's dependencies, use the
+        // "<plugin-slug>/vendor" form — never a bare "vendor", which hits the
+        // segment branch in is_excluded() and would strip EVERY plugin's and
+        // theme's vendor directory site-wide.
     ];
 
     private Mighty_Backup_Settings $settings;

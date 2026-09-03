@@ -45,7 +45,16 @@ wp plugin install https://github.com/builtmighty/mighty-backup/releases/latest/d
 2. Activate the plugin in WordPress (or Network Activate on multisite).
 3. Go to **MightyBackup** in the admin menu and configure your DigitalOcean Spaces credentials.
 
-`vendor/` is committed, so no `composer install` is needed for a normal install. If `vendor/` is ever damaged, repair it with `composer install --no-dev --optimize-autoloader` from the plugin directory.
+`vendor/` is committed and ships in every release, so **no `composer install` is needed** — which matters on client hosts where we only have WP admin access.
+
+If the plugin ever reports missing dependencies (a deploy pipeline filtering `**/vendor`, a truncated auto-update, or a restore from a pre-3.0.1 backup), repair it without a shell:
+
+- **WP admin** — click **Repair dependencies** on the warning notice. It re-downloads the release matching the installed version and restores `vendor/` in place; it never upgrades the plugin.
+- **WP-CLI** — `wp mighty-backup repair deps` (add `--status` to diagnose without changing anything).
+- **Manual** — reinstall from the [latest release ZIP](https://github.com/builtmighty/mighty-backup/releases/latest/download/mighty-backup.zip) via **Plugins → Add New → Upload Plugin**, choosing "Replace current with uploaded".
+- **With a shell** — `composer install --no-dev --optimize-autoloader` from the plugin directory.
+
+If the notice reports a **PHP version** below 8.1, none of the above will help — the bundled `vendor/composer/platform_check.php` refuses to load and only a PHP upgrade fixes it.
 
 ## Local Development
 
@@ -134,11 +143,10 @@ The following paths are always excluded from file backups:
 - `wp-content/object-cache.php` (production drop-in)
 - `wp-content/advanced-cache.php` (production drop-in)
 - `wp-content/mysql.sql` (hosting-managed SQL snapshot — redundant and racy)
-- `mighty-backup/vendor` (this plugin's own Composer tree — see note below)
 
-> **Note on `mighty-backup/vendor`.** These archives exist to hydrate Codespaces, not to restore production, so the plugin's own dependencies are not archived — that avoids stat-ing, reading and gzipping hundreds of dependency files into every archive, and walking them again during archive verification. Consequence: Mighty Backup will report its dependencies as missing inside a Codespace built from one of these archives. Run `composer install --no-dev` in the plugin directory to restore them; `composer.json` and `composer.lock` ship in the release ZIP for exactly this purpose.
+> **The plugin's own `vendor/` directory is included, deliberately.** 2.16.0 excluded it, back when the bundled tree was 5,193 files / 50 MB. The same release pruned it to 720 files / 4.9 MB (~1.5 MB gzipped), which inverted the trade-off — but the exclusion stayed, so every Codespace hydrated from a backup came up with Mighty Backup installed and its dependencies stripped, reporting *"Missing dependencies: AWS SDK"* with no way to fix it without a shell. 3.0.1 restored it.
 >
-> The pattern is `mighty-backup/vendor` rather than a bare `vendor` on purpose: exclusions match a whole path segment anywhere in the path, so a bare `vendor` would strip **every** plugin's and theme's dependencies from every backup.
+> If you ever need to exclude a single plugin's dependencies, use the `<plugin-slug>/vendor` form. Never a bare `vendor` — exclusions match a whole path segment anywhere in the path, so that would strip **every** plugin's and theme's dependencies from every backup.
 
 ## WP-CLI Commands
 
@@ -166,7 +174,16 @@ wp mighty-backup dev-mode [--disable]
 
 # Repair persisted wpdb placeholder-escape tokens (`{HASH}`) in the database
 wp mighty-backup repair placeholders [--dry-run] [--no-backup-first]
+
+# Diagnose / restore the bundled Composer dependencies (vendor/)
+wp mighty-backup repair deps [--status]
 ```
+
+#### `repair deps`
+
+Restores the bundled `vendor/` tree when the plugin reports missing dependencies. Downloads the release matching the **installed** version — falling back to the latest — and replaces `vendor/` in place; it never upgrades the plugin.
+
+`--status` prints what is missing and why (autoloader present, PHP version against the 8.1 floor, missing PHP extensions) and exits without changing anything. If PHP is below 8.1 the command refuses to run, because the bundled `platform_check.php` will not load regardless of how many times `vendor/` is restored.
 
 #### `repair placeholders`
 

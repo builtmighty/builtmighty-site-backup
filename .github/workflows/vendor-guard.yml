@@ -82,18 +82,54 @@ jobs:
             exit 1
           fi
 
-      - name: Plugin's own vendor is excluded from backup archives
+      # Inverted in 3.0.1. Excluding the plugin's own vendor tree left every
+      # Codespace hydrated from a backup with a dependency-less Mighty Backup
+      # ("Missing dependencies: AWS SDK") and no way to repair it without a shell.
+      - name: Plugin's own vendor is INCLUDED in backup archives
         run: |
-          if ! grep -q "'mighty-backup/vendor'" includes/class-file-archiver.php; then
-            echo "::error::DEFAULT_EXCLUSIONS no longer excludes the plugin's own vendor tree."
+          # Match only a real array entry, not the explanatory comment that also
+          # names the pattern. Both regexes require the line to start with the
+          # quoted string, so a `//`-prefixed mention does not trip them.
+          if grep -qE "^[[:space:]]*'mighty-backup/vendor'[[:space:]]*,?" includes/class-file-archiver.php; then
+            echo "::error::DEFAULT_EXCLUSIONS excludes the plugin's own vendor tree again. A site restored from the archive would come up with no AWS SDK and no way to repair it without a shell. See the NOTE in class-file-archiver.php."
             exit 1
           fi
           # A bare 'vendor' pattern would strip EVERY plugin's and theme's vendor
           # dir from every backup, because is_excluded() matches whole segments.
-          if grep -qE "^\s*'vendor',\s*$" includes/class-file-archiver.php; then
+          if grep -qE "^[[:space:]]*'vendor'[[:space:]]*,?[[:space:]]*$" includes/class-file-archiver.php; then
             echo "::error::A bare 'vendor' exclusion would strip every plugin's and theme's vendor dir site-wide."
             exit 1
           fi
+
+      # Dependabot bumps composer.lock but cannot regenerate the committed vendor/
+      # tree, so without this a dependency PR goes green while shipping the OLD
+      # library — an advertised security fix that never actually reaches a site.
+      - name: Committed vendor matches composer.lock
+        run: |
+          php -r '
+            $lock = json_decode(file_get_contents("composer.lock"), true);
+            $installed = json_decode(file_get_contents("vendor/composer/installed.json"), true);
+            if (!is_array($lock) || !is_array($installed)) {
+              fwrite(STDERR, "::error::Could not read composer.lock or vendor/composer/installed.json\n");
+              exit(1);
+            }
+            $have = [];
+            foreach ($installed["packages"] ?? $installed as $p) {
+              if (isset($p["name"], $p["version"])) { $have[$p["name"]] = $p["version"]; }
+            }
+            $drift = [];
+            foreach ($lock["packages"] as $p) {
+              $name = $p["name"]; $want = $p["version"];
+              if (!array_key_exists($name, $have)) { $drift[] = "$name $want is in composer.lock but NOT in vendor/"; }
+              elseif ($have[$name] !== $want) { $drift[] = "$name: composer.lock says $want, vendor/ has {$have[$name]}"; }
+            }
+            if ($drift) {
+              fwrite(STDERR, "::error::vendor/ is out of sync with composer.lock. Run: composer install --no-dev --optimize-autoloader && git add -A vendor\n");
+              foreach ($drift as $d) { fwrite(STDERR, "  $d\n"); }
+              exit(1);
+            }
+            echo "vendor/ matches composer.lock: " . count($lock["packages"]) . " production packages\n";
+          '
 
       - name: Committed autoloader matches committed tree
         run: |

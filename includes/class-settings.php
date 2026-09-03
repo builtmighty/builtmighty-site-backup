@@ -828,7 +828,9 @@ class Mighty_Backup_Settings {
 
         if ( ! mighty_backup_has_sdk() ) {
             wp_send_json_error(
-                'AWS SDK not found. Please run "composer install" in the plugin directory or use a pre-built release.'
+                'The bundled AWS SDK could not be loaded, so this install is incomplete. '
+                . 'Use the "Repair dependencies" button on the plugin warning notice, or reinstall '
+                . 'the plugin from the latest release ZIP via Plugins → Add New → Upload Plugin.'
             );
         }
 
@@ -861,12 +863,18 @@ class Mighty_Backup_Settings {
 
         if ( ! mighty_backup_has_sdk() ) {
             wp_send_json_error(
-                'AWS SDK not found. Please run "composer install" in the plugin directory or use a pre-built release.'
+                'The bundled AWS SDK could not be loaded, so this install is incomplete. '
+                . 'Use the "Repair dependencies" button on the plugin warning notice, or reinstall '
+                . 'the plugin from the latest release ZIP via Plugins → Add New → Upload Plugin.'
             );
         }
 
         if ( ! mighty_backup_has_action_scheduler() ) {
-            wp_send_json_error( 'Action Scheduler not available. Run "composer install" in the plugin directory.' );
+            wp_send_json_error(
+                'Action Scheduler is not available. It ships with this plugin and is also provided by '
+                . 'WooCommerce, so this install is incomplete — use the "Repair dependencies" button on '
+                . 'the plugin warning notice, or reinstall from the latest release ZIP.'
+            );
         }
 
         if ( ! $this->is_configured() ) {
