@@ -81,9 +81,16 @@ jobs:
       # Prove the pruned SDK actually boots: construct the client exactly as
       # includes/class-spaces-client.php does, then exercise presigning and the
       # paginators (the two features most likely to break under pruning).
+      # NOTE: failures must use `exit(1)`, never `exit("message")` — PHP's exit()
+      # with a string argument prints it and returns status 0, which silently made
+      # every assertion in this step decorative from 2.16.0 until 3.0.1.
       - name: Smoke-test the pruned AWS SDK
         run: |
           php -r '
+            $fail = static function (string $why): void {
+              fwrite(STDERR, "::error::pruned SDK smoke test failed: " . $why . PHP_EOL);
+              exit(1);
+            };
             require "vendor/autoload.php";
             $c = new Aws\S3\S3Client([
               "version" => "latest", "region" => "us-east-1",
@@ -98,17 +105,16 @@ jobs:
               "DeleteObjects","GetObject","PutObject",
               "CreateMultipartUpload","UploadPart","CompleteMultipartUpload",
             ] as $op) {
-              $c->getApi()->hasOperation($op) or exit("MISSING OPERATION: $op\n");
+              if (!$c->getApi()->hasOperation($op)) { $fail("missing S3 operation $op"); }
             }
             $u = (string) $c->createPresignedRequest(
               $c->getCommand("GetObject", ["Bucket" => "b", "Key" => "k"]), "+3600 seconds"
             )->getUri();
-            str_contains($u, "X-Amz-Signature=") or exit("presigning broken\n");
-            $c->getPaginator("ListObjectsV2", ["Bucket" => "b"]) instanceof Aws\ResultPaginator
-              or exit("paginator broken\n");
-            class_exists("Aws\S3\MultipartUploader") or exit("MultipartUploader missing\n");
-            class_exists("Aws\Ec2\Ec2Client") and exit("Ec2 survived the prune\n");
-            echo "pruned SDK smoke test OK\n";
+            if (!str_contains($u, "X-Amz-Signature=")) { $fail("presigning produced no signature"); }
+            if (!($c->getPaginator("ListObjectsV2", ["Bucket" => "b"]) instanceof Aws\ResultPaginator)) { $fail("paginator broken (jmespath pruned?)"); }
+            if (!class_exists("Aws\S3\MultipartUploader")) { $fail("MultipartUploader missing"); }
+            if (class_exists("Aws\Ec2\Ec2Client")) { $fail("Ec2 survived the prune"); }
+            echo "pruned SDK smoke test OK" . PHP_EOL;
           '
 
       - name: Build plugin ZIP
@@ -133,18 +139,49 @@ jobs:
           zip -r mighty-backup.zip "$PLUGIN_DIR"
           echo "ZIP size: $(du -h mighty-backup.zip | cut -f1)"
 
-      - name: Get latest release tag
+      - name: Resolve target release tag
         id: tag
         run: |
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            # workflow_dispatch. Use the release GitHub itself considers "latest"
+            # rather than `gh release list --limit 1`, which returns the most
+            # recently *created* release and, with --clobber, could overwrite the
+            # asset on a different release than intended.
+            TAG="$(gh release view --json tagName -q .tagName)"
           fi
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not determine which release to upload to."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Target release: $TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload ZIP to release
         run: gh release upload "${{ steps.tag.outputs.tag }}" mighty-backup.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2.17.0 published with no asset at all (its build run was cancelled), so
+      # releases/latest/download/mighty-backup.zip — the README badge and the
+      # WP-CLI install URL — 404'd for the two days it was latest, silently.
+      # Re-query so a cancelled or partial run can never look like success.
+      - name: Confirm the release asset is present
+        run: |
+          set -euo pipefail
+          SIZE="$(gh release view "${{ steps.tag.outputs.tag }}" \
+            --json assets -q '.assets[] | select(.name == "mighty-backup.zip") | .size')"
+          if [ -z "$SIZE" ]; then
+            echo "::error::Release ${{ steps.tag.outputs.tag }} has no mighty-backup.zip asset. The documented install URL is broken."
+            exit 1
+          fi
+          if [ "$SIZE" -lt 500000 ]; then
+            echo "::error::mighty-backup.zip is only $SIZE bytes - far too small to contain vendor/. Expected ~1.6 MB."
+            exit 1
+          fi
+          echo "Release asset confirmed: mighty-backup.zip ($SIZE bytes)"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

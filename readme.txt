@@ -4,7 +4,7 @@ Donate link: https://builtmighty.com
 Tags: digital ocean, spaces, backups
 Requires at least: 6.0
 Tested up to: 6.7
-Stable tag: 3.0.0
+Stable tag: 3.0.1
 Requires PHP: 8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,6 +20,17 @@ Automated site backups to DigitalOcean Spaces. Creates nightly and on-demand bac
 == Screenshots ==
 
 == Changelog ==
+
+= 3.0.1 =
+**Backups now include the plugin's own dependencies, so a restored site or Codespace comes up working instead of reporting "Missing dependencies: AWS SDK".**
+
+* **The plugin's own `vendor/` directory is archived again.** 2.16.0 added `mighty-backup/vendor` to `Mighty_Backup_File_Archiver::DEFAULT_EXCLUSIONS` back when the bundled tree was 5,193 files / 50 MB. That same release pruned it to 720 files / 4.9 MB — about 1.5 MB gzipped — which inverted the trade-off, but the exclusion stayed. The result: every Codespace hydrated from a backup came up with Mighty Backup installed and its dependencies stripped, showing *"Missing dependencies: AWS SDK"* and pointing the operator at a `composer install` they often had no shell to run. The exclusion is removed; the guard in CI now fails if it is ever re-added. Note this only affects **new** backups — a Codespace built from an archive taken before 3.0.1 still needs a repair (see below). To be explicit about a detail that misleads: the notice named only the AWS SDK and not Action Scheduler because on a WooCommerce site WooCommerce supplies Action Scheduler, so it looked present even when the whole `vendor/` folder was gone.
+* **New: repair dependencies without a shell.** A **Repair dependencies** button on the warning notice, and `wp mighty-backup repair deps` on the command line, download the release matching the *installed* version — falling back to the latest — and restore `vendor/` in place using WordPress's own filesystem API. It never upgrades the plugin. `wp mighty-backup repair deps --status` reports what is missing and why without changing anything. This covers the cases an archive fix cannot: a deploy pipeline filtering `**/vendor`, or a truncated extraction during an auto-update.
+* **A site on PHP older than 8.1 no longer white-screens.** The bundled `vendor/composer/platform_check.php` throws an uncaught exception on PHP below 8.1, and because the autoloader is required at plugin-load time that took down the whole site — front end included — before WordPress could render any notice. WordPress's "Requires PHP" header blocks activation and updates, but not a plugin that is already active when a host downgrades PHP. The autoloader is now only required when the PHP version actually satisfies it, so the site stays up and the dependency notice explains that PHP is the problem.
+* **The dependency notice now explains the actual cause.** It previously told everyone to run `composer install`, which is both wrong (the tree ships bundled) and impossible on a WP-admin-only host. It now distinguishes between PHP older than 8.1 (where nothing but a PHP upgrade helps, because the bundled `platform_check.php` refuses to load), a `vendor/` folder that was stripped, and missing PHP extensions — and gives a recovery path that works with WP admin alone. The same correction is applied to the backup-manager exception and the three settings AJAX errors.
+* **Fixed: the release smoke test could never fail.** The "Smoke-test the pruned AWS SDK" step added in 2.16.0 reported failures with `exit("message")`. PHP's `exit()` with a string argument prints it and returns status **0**, so every assertion in that step — including the check that unused AWS services really were pruned — was decorative and could not block a bad release. It now writes to stderr and exits 1.
+* **Fixed: `vendor/` could drift from `composer.lock` unnoticed.** Dependabot bumps the lock but cannot regenerate the committed tree, so a dependency PR could go green while shipping the *old* library — an advertised security fix that never actually reached a site. CI now compares every package and version in `composer.lock` against `vendor/composer/installed.json`.
+* **Release pipeline hardening.** 2.17.0 published with no ZIP asset at all (its build run was cancelled), so `releases/latest/download/mighty-backup.zip` — the URL in the README and the WP-CLI install command — returned 404 for the two days it was the latest release. Auto-updates were unaffected, since those download the source zipball. The workflow now re-queries the release after upload and fails if the asset is missing or implausibly small, and the `workflow_dispatch` path no longer resolves the target release with `gh release list --limit 1`, which returns the most recently *created* release and could overwrite the wrong one.
 
 = 3.0.0 =
 **The devcontainer is now owned end-to-end by the template. `.devcontainer/` is replaced wholesale on every update, not merged into.**
